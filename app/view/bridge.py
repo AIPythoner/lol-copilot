@@ -37,6 +37,10 @@ from app.services import aram_buff, assets, opgg
 
 log = get_logger(__name__)
 
+MATCH_DETAIL_PRELOAD_COUNT = 10
+MATCH_DETAIL_PRELOAD_CONCURRENCY = 3
+MATCH_DETAIL_CACHE_LIMIT = 64
+
 
 class LcuBridge(QObject):
     connectedChanged = Signal()
@@ -82,6 +86,8 @@ class LcuBridge(QObject):
         self._augments_by_id: dict[str, Any] = {}
         self._match_detail_cache: dict[int, dict] = {}
         self._match_detail_order: list[int] = []
+        self._match_detail_inflight: dict[int, asyncio.Task] = {}
+        self._match_detail_preload_seq: int = 0
         self._winrate_sent_game_ids: set[int] = set()
         self._champion_pool: list[dict[str, Any]] = []
         self._teammates: list[dict[str, Any]] = []
@@ -346,9 +352,17 @@ class LcuBridge(QObject):
         """
         gid = int(game_id)
         cached = self._match_detail_cache.get(gid)
-        self._match_detail = cached if cached is not None else {"loading": True, "gameId": gid}
-        self.matchDetailChanged.emit()
-        self._spawn(self._load_match_detail(gid))
+        if cached is not None:
+            current_gid = int((self._match_detail or {}).get("gameId") or -1)
+            current_has_detail = bool((self._match_detail or {}).get("participants"))
+            if current_gid != gid or not current_has_detail:
+                self._match_detail = cached
+                self.matchDetailChanged.emit()
+            self._preload_match_detail_icons(cached, priority=True)
+        else:
+            self._match_detail = {"loading": True, "gameId": gid}
+            self.matchDetailChanged.emit()
+            self._spawn(self._load_match_detail(gid))
         self.navigationRequested.emit("pages/MatchDetailPage.qml")
 
     @Slot()
@@ -696,6 +710,7 @@ class LcuBridge(QObject):
                 return
             self._matches = [self._project_match(g) for g in games]
             self.matchesChanged.emit()
+            self._schedule_match_detail_preload(self._matches, request_seq)
         except Exception as e:  # noqa: BLE001
             log.exception("load matches failed: %s", e)
             self.errorOccurred.emit(str(e))
@@ -723,22 +738,16 @@ class LcuBridge(QObject):
         # Serve from cache on repeat clicks — near-instant back/forward.
         cached = self._match_detail_cache.get(game_id)
         if cached is not None:
+            self._preload_match_detail_icons(cached, priority=True)
             self._match_detail = cached
             self.matchDetailChanged.emit()
             return
         self._match_detail = {"loading": True, "gameId": game_id}
         self.matchDetailChanged.emit()
         try:
-            g = await api.game_detail(self._client, game_id)
-            projected = self._project_match_detail(g)
-            self._preload_match_detail_icons(projected)
+            projected = await self._get_projected_match_detail(game_id)
+            self._preload_match_detail_icons(projected, priority=True)
             self._match_detail = projected
-            # LRU: keep last 64 details
-            self._match_detail_cache[game_id] = projected
-            self._match_detail_order.append(game_id)
-            while len(self._match_detail_order) > 64:
-                old = self._match_detail_order.pop(0)
-                self._match_detail_cache.pop(old, None)
             self.matchDetailChanged.emit()
         except Exception as e:  # noqa: BLE001
             log.exception("match detail failed: %s", e)
@@ -746,7 +755,87 @@ class LcuBridge(QObject):
             self.matchDetailChanged.emit()
             self.errorOccurred.emit(str(e))
 
-    def _preload_match_detail_icons(self, detail: dict[str, Any]) -> None:
+    def _schedule_match_detail_preload(self, matches: list[dict[str, Any]], request_seq: int) -> None:
+        self._match_detail_preload_seq += 1
+        preload_seq = self._match_detail_preload_seq
+        game_ids: list[int] = []
+        seen: set[int] = set()
+        for match in matches:
+            raw_gid = match.get("gameId") if isinstance(match, dict) else None
+            try:
+                gid = int(raw_gid)
+            except (TypeError, ValueError):
+                continue
+            if gid <= 0 or gid in seen or gid in self._match_detail_cache:
+                continue
+            seen.add(gid)
+            game_ids.append(gid)
+            if len(game_ids) >= MATCH_DETAIL_PRELOAD_COUNT:
+                break
+        if game_ids:
+            self._spawn(
+                self._preload_match_details(game_ids, request_seq, preload_seq),
+                name="bridge-match-detail-preload",
+            )
+
+    async def _preload_match_details(
+        self,
+        game_ids: list[int],
+        request_seq: int,
+        preload_seq: int,
+    ) -> None:
+        sem = asyncio.Semaphore(MATCH_DETAIL_PRELOAD_CONCURRENCY)
+
+        async def one(gid: int) -> None:
+            if (
+                request_seq != self._matches_request_seq
+                or preload_seq != self._match_detail_preload_seq
+            ):
+                return
+            if gid in self._match_detail_cache:
+                return
+            async with sem:
+                try:
+                    await self._get_projected_match_detail(gid)
+                except Exception as e:  # noqa: BLE001
+                    log.debug("match detail preload failed gid=%s: %s", gid, e)
+
+        await asyncio.gather(*(one(gid) for gid in game_ids))
+
+    async def _get_projected_match_detail(self, game_id: int) -> dict[str, Any]:
+        cached = self._match_detail_cache.get(game_id)
+        if cached is not None:
+            return cached
+
+        task = self._match_detail_inflight.get(game_id)
+        if task is None:
+            task = self._spawn(
+                self._fetch_projected_match_detail(game_id),
+                name=f"bridge-match-detail-{game_id}",
+            )
+            self._match_detail_inflight[game_id] = task
+        try:
+            return await task
+        finally:
+            if task.done() and self._match_detail_inflight.get(game_id) is task:
+                self._match_detail_inflight.pop(game_id, None)
+
+    async def _fetch_projected_match_detail(self, game_id: int) -> dict[str, Any]:
+        g = await api.game_detail(self._client, game_id)
+        projected = self._project_match_detail(g)
+        self._cache_match_detail(game_id, projected)
+        return projected
+
+    def _cache_match_detail(self, game_id: int, detail: dict[str, Any]) -> None:
+        self._match_detail_cache[game_id] = detail
+        if game_id in self._match_detail_order:
+            self._match_detail_order.remove(game_id)
+        self._match_detail_order.append(game_id)
+        while len(self._match_detail_order) > MATCH_DETAIL_CACHE_LIMIT:
+            old = self._match_detail_order.pop(0)
+            self._match_detail_cache.pop(old, None)
+
+    def _preload_match_detail_icons(self, detail: dict[str, Any], *, priority: bool = False) -> None:
         if self._image_provider is None or not hasattr(self._image_provider, "preload"):
             return
 
@@ -772,7 +861,7 @@ class LcuBridge(QObject):
                 add((self._augments_by_id.get(str(aid)) or {}).get("iconPath"))
 
         try:
-            self._image_provider.preload(paths)
+            self._image_provider.preload(paths, priority=priority, clear_pending=priority)
         except Exception as e:  # noqa: BLE001
             log.debug("match detail icon preload failed: %s", e)
 

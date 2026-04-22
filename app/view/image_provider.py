@@ -22,6 +22,8 @@ from app.common.logger import get_logger
 
 log = get_logger(__name__)
 
+PRELOAD_WORKER_COUNT = 3
+
 
 class LcuImageProvider(QQuickImageProvider):
     def __init__(self, cache_limit: int = 512) -> None:
@@ -36,6 +38,9 @@ class LcuImageProvider(QQuickImageProvider):
         self._cache: dict[str, QPixmap] = {}
         self._cache_order: list[str] = []
         self._inflight: dict[str, threading.Event] = {}
+        self._preload_queue: list[str] = []
+        self._preload_queued: set[str] = set()
+        self._preload_workers: list[threading.Thread] = []
 
     def set_credentials(self, port: int, token: str) -> None:
         with self._lock:
@@ -45,6 +50,8 @@ class LcuImageProvider(QQuickImageProvider):
             self._cache.clear()
             self._cache_order.clear()
             self._inflight.clear()
+            self._preload_queue.clear()
+            self._preload_queued.clear()
             if port and token:
                 self._client = httpx.Client(
                     base_url=f"https://127.0.0.1:{port}",
@@ -105,16 +112,54 @@ class LcuImageProvider(QQuickImageProvider):
                     done.set()
         return pix
 
-    def preload(self, paths: list[str] | set[str]) -> None:
+    def preload(
+        self,
+        paths: list[str] | set[str],
+        *,
+        priority: bool = False,
+        clear_pending: bool = False,
+    ) -> None:
         keys = sorted({p.lstrip("/") for p in paths if p})
         if not keys:
             return
 
-        def run() -> None:
+        workers_to_start: list[threading.Thread] = []
+        with self._lock:
+            if clear_pending:
+                self._preload_queue.clear()
+                self._preload_queued.clear()
+            pending: list[str] = []
             for key in keys:
-                self._fetch_pixmap(key)
+                if key in self._cache or key in self._preload_queued:
+                    continue
+                pending.append(key)
+                self._preload_queued.add(key)
+            if priority:
+                self._preload_queue = pending + self._preload_queue
+            else:
+                self._preload_queue.extend(pending)
+            self._preload_workers = [w for w in self._preload_workers if w.is_alive()]
+            missing = PRELOAD_WORKER_COUNT - len(self._preload_workers)
+            for idx in range(min(missing, len(self._preload_queue))):
+                worker = threading.Thread(
+                    target=self._run_preload_queue,
+                    name=f"lcu-image-preload-{idx + 1}",
+                    daemon=True,
+                )
+                self._preload_workers.append(worker)
+                workers_to_start.append(worker)
 
-        threading.Thread(target=run, name="lcu-image-preload", daemon=True).start()
+        for worker in workers_to_start:
+            worker.start()
+
+    def _run_preload_queue(self) -> None:
+        while True:
+            with self._lock:
+                if not self._preload_queue:
+                    return
+                key = self._preload_queue.pop(0)
+                self._preload_queued.discard(key)
+            self._fetch_pixmap(key)
 
     def requestPixmap(self, id: str, size: QSize, requested: QSize) -> QPixmap:
         """id is the LCU path sans leading slash, e.g.

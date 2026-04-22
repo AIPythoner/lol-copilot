@@ -7,17 +7,12 @@ import "../js/fmt.js" as Fmt
 
 FluScrollablePage {
     id: page
-    launchMode: FluPageType.Standard
+    launchMode: FluPageType.SingleTask
     title: qsTr("对局详情")
 
-    // Use Standard launch mode: SingleTask would reuse an old detail page, whose
-    // locked game id intentionally rejects a newly-opened match payload.
-    //
-    // Each pushed MatchDetailPage locks onto the game it was opened for so that
-    // subsequent clicks (which overwrite Lcu.matchDetail) don't make every
-    // previous page in the nav stack re-render 120 images again. Without this,
-    // going Matches → Detail → Profile → Match → Detail makes all pages fight
-    // for image bandwidth and the UI visibly freezes.
+    // Keep a single detail page in the navigation stack. Repeated Standard
+    // pushes retain old QML pages, and every retained page still reacts to
+    // matchDetailChanged, re-running row/icon loaders in the background.
     property double myGameId: -1
     property var detail: ({})
     property bool isLoading: detail.loading === true || (myGameId > 0 && !detail.participants && !detail.error)
@@ -76,8 +71,8 @@ FluScrollablePage {
         function onMatchDetailChanged() {
             var md = Lcu.matchDetail || {}
             var gid = Number(md.gameId || -1)
-            if (myGameId <= 0 && gid > 0) myGameId = gid
-            if (gid === myGameId) {
+            if (gid > 0) {
+                myGameId = gid
                 detail = md
             }
         }
