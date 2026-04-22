@@ -19,6 +19,7 @@ class AutoActionSettings:
     auto_accept: bool = False
     auto_ban: bool = False
     auto_pick: bool = False
+    send_team_winrate: bool = False
     ban_priority: list[int] = field(default_factory=list)
     pick_priority: list[int] = field(default_factory=list)
 
@@ -36,7 +37,7 @@ class WindowGeom:
     x: int = -1
     y: int = -1
     width: int = 1100
-    height: int = 720
+    height: int = 660
 
 
 @dataclass
@@ -54,6 +55,16 @@ class AppSettings:
         aa_raw = raw.get("auto_actions") or {}
         op_raw = raw.get("opgg") or {}
         wnd_raw = raw.get("window") or {}
+        try:
+            saved_height = int(wnd_raw.get("height") or 0)
+        except (TypeError, ValueError):
+            saved_height = 0
+        if wnd_raw.get("width") == 1100 and wnd_raw.get("height") == 720:
+            wnd_raw = dict(wnd_raw)
+            wnd_raw["height"] = 660
+        elif saved_height > 900:
+            wnd_raw = dict(wnd_raw)
+            wnd_raw["height"] = 660
         dark_mode = raw.get("dark_mode", "dark")
         if dark_mode not in ("dark", "light"):
             dark_mode = "dark"

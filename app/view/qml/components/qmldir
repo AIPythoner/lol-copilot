@@ -14,3 +14,4 @@ QueueBadge 1.0 QueueBadge.qml
 ProfileIcon 1.0 ProfileIcon.qml
 AugmentIcon 1.0 AugmentIcon.qml
 ElegantLoader 1.0 ElegantLoader.qml
+AutoActionsPanel 1.0 AutoActionsPanel.qml

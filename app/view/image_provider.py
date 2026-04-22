@@ -35,6 +35,7 @@ class LcuImageProvider(QQuickImageProvider):
         self._cache_limit = cache_limit
         self._cache: dict[str, QPixmap] = {}
         self._cache_order: list[str] = []
+        self._inflight: dict[str, threading.Event] = {}
 
     def set_credentials(self, port: int, token: str) -> None:
         with self._lock:
@@ -43,6 +44,7 @@ class LcuImageProvider(QQuickImageProvider):
             # Invalidate cache on port change — LCU rolls port each launch.
             self._cache.clear()
             self._cache_order.clear()
+            self._inflight.clear()
             if port and token:
                 self._client = httpx.Client(
                     base_url=f"https://127.0.0.1:{port}",
@@ -56,32 +58,68 @@ class LcuImageProvider(QQuickImageProvider):
             except Exception:  # noqa: BLE001
                 pass
 
-    def requestPixmap(self, id: str, size: QSize, requested: QSize) -> QPixmap:
-        """id is the LCU path sans leading slash, e.g.
-        ``lol-game-data/assets/v1/champion-icons/266.png``."""
-        key = id.lstrip("/")
+    def _store_cache_locked(self, key: str, pix: QPixmap) -> None:
+        self._cache[key] = pix
+        if key in self._cache_order:
+            self._cache_order.remove(key)
+        self._cache_order.append(key)
+        while len(self._cache_order) > self._cache_limit:
+            old_key = self._cache_order.pop(0)
+            self._cache.pop(old_key, None)
+
+    def _fetch_pixmap(self, key: str) -> QPixmap:
         with self._lock:
             cached = self._cache.get(key)
             if cached is not None:
                 return cached
+            event = self._inflight.get(key)
+            if event is None:
+                event = threading.Event()
+                self._inflight[key] = event
+                owner = True
+            else:
+                owner = False
             client = self._client
-        if client is None or not id:
-            return QPixmap()
+
+        if not owner:
+            event.wait(timeout=5.0)
+            with self._lock:
+                return self._cache.get(key, QPixmap())
+
+        pix = QPixmap()
         try:
-            resp = client.get("/" + key)
+            if client is not None:
+                resp = client.get("/" + key)
+                if resp.status_code == 200 and resp.content:
+                    img = QImage.fromData(resp.content)
+                    if not img.isNull():
+                        pix = QPixmap.fromImage(img)
         except Exception as e:  # noqa: BLE001
-            log.debug("lcu image fetch failed %s: %s", id, e)
-            return QPixmap()
-        if resp.status_code != 200 or not resp.content:
-            return QPixmap()
-        img = QImage.fromData(resp.content)
-        if img.isNull():
-            return QPixmap()
-        pix = QPixmap.fromImage(img)
-        with self._lock:
-            self._cache[key] = pix
-            self._cache_order.append(key)
-            while len(self._cache_order) > self._cache_limit:
-                old_key = self._cache_order.pop(0)
-                self._cache.pop(old_key, None)
+            log.debug("lcu image fetch failed %s: %s", key, e)
+        finally:
+            with self._lock:
+                if not pix.isNull():
+                    self._store_cache_locked(key, pix)
+                done = self._inflight.pop(key, None)
+                if done is not None:
+                    done.set()
         return pix
+
+    def preload(self, paths: list[str] | set[str]) -> None:
+        keys = sorted({p.lstrip("/") for p in paths if p})
+        if not keys:
+            return
+
+        def run() -> None:
+            for key in keys:
+                self._fetch_pixmap(key)
+
+        threading.Thread(target=run, name="lcu-image-preload", daemon=True).start()
+
+    def requestPixmap(self, id: str, size: QSize, requested: QSize) -> QPixmap:
+        """id is the LCU path sans leading slash, e.g.
+        ``lol-game-data/assets/v1/champion-icons/266.png``."""
+        key = id.lstrip("/")
+        if not key:
+            return QPixmap()
+        return self._fetch_pixmap(key)

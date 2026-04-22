@@ -7,6 +7,7 @@ Endpoints compiled from the reference projects (Seraphine, frank, rank-analysis)
 """
 from __future__ import annotations
 
+from urllib.parse import quote
 from typing import Any
 
 from app.lcu.client import LcuClient
@@ -188,6 +189,18 @@ async def set_presence(c: LcuClient, *, availability: str | None = None, status_
 
 async def friends(c: LcuClient) -> list[dict]:
     return await c.get("/lol-chat/v1/friends")
+
+
+async def chat_conversations(c: LcuClient) -> list[dict]:
+    return await c.get("/lol-chat/v1/conversations")
+
+
+async def send_chat_message(c: LcuClient, conversation_id: str, message: str) -> dict:
+    cid = quote(conversation_id, safe="")
+    return await c.post(
+        f"/lol-chat/v1/conversations/{cid}/messages",
+        json={"body": message, "type": "chat"},
+    )
 
 
 # ---------- summoner search (Riot ID) ----------

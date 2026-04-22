@@ -7,11 +7,12 @@ FluWindow {
     id: window
     title: qsTr("LoL 战绩助手")
     width: Lcu.settings.window && Lcu.settings.window.width ? Lcu.settings.window.width : 1100
-    height: Lcu.settings.window && Lcu.settings.window.height ? Lcu.settings.window.height : 720
+    height: Lcu.settings.window && Lcu.settings.window.height ? Lcu.settings.window.height : 660
     minimumWidth: 900
-    minimumHeight: 600
+    minimumHeight: 560
     launchMode: FluWindowType.SingleTask
     fitsAppBarWindows: true
+    property bool trayAvailable: true
 
     Timer {
         id: saveGeomTimer
@@ -29,9 +30,13 @@ FluWindow {
         height: 30
         showDark: true
         closeClickListener: () => {
-            // Minimise to tray instead of quitting — user can fully close from
-            // the tray menu. Acts like Seraphine / 微信 / QQ.
-            window.hide()
+            if (window.trayAvailable) {
+                // Minimise to tray instead of quitting — user can fully close from
+                // the tray menu. Acts like Seraphine / 微信 / QQ.
+                window.hide()
+            } else {
+                Qt.quit()
+            }
         }
         z: 7
     }

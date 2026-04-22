@@ -96,7 +96,12 @@ def run_gui() -> int:
         is_paused=bridge.autoPaused,
         on_quit=app.quit,
     )
-    if not tray.install():
+    tray_available = tray.install()
+    try:
+        window.setProperty("trayAvailable", tray_available)
+    except Exception as e:  # noqa: BLE001
+        log.debug("failed to set tray availability: %s", e)
+    if not tray_available:
         log.warning("system tray unavailable; close button will quit the app")
         app.setQuitOnLastWindowClosed(True)
 

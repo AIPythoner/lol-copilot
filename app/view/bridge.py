@@ -67,6 +67,7 @@ class LcuBridge(QObject):
         self._phase: str = ""
         self._matches: list[dict[str, Any]] = []
         self._matches_loading: bool = False
+        self._matches_request_seq: int = 0
         self._ranked: dict[str, Any] = {}
         self._champ_select: dict[str, Any] = {}
         self._match_detail: dict[str, Any] = {}
@@ -81,6 +82,7 @@ class LcuBridge(QObject):
         self._augments_by_id: dict[str, Any] = {}
         self._match_detail_cache: dict[int, dict] = {}
         self._match_detail_order: list[int] = []
+        self._winrate_sent_game_ids: set[int] = set()
         self._champion_pool: list[dict[str, Any]] = []
         self._teammates: list[dict[str, Any]] = []
         self._search_result: dict[str, Any] = {}
@@ -393,7 +395,10 @@ class LcuBridge(QObject):
         several LCU endpoints since ``summoner-by-name`` is deprecated."""
         if not query or not query.strip():
             return
-        self._spawn(self._search_summoner(query.strip()))
+        query = query.strip()
+        self._search_result = {"loading": True, "query": query}
+        self.searchResultChanged.emit()
+        self._spawn(self._search_summoner(query))
         self.navigationRequested.emit("pages/SummonerProfilePage.qml")
 
     @Slot(str)
@@ -496,11 +501,11 @@ class LcuBridge(QObject):
 
     @Slot("QVariant")
     def updateAutoActions(self, raw: Any) -> None:
-        """raw: {auto_accept, auto_ban, auto_pick, ban_priority, pick_priority}"""
+        """raw: {auto_accept, auto_ban, auto_pick, send_team_winrate, ban_priority, pick_priority}"""
         if not isinstance(raw, dict):
             return
         aa = self._settings.auto_actions
-        for k in ("auto_accept", "auto_ban", "auto_pick"):
+        for k in ("auto_accept", "auto_ban", "auto_pick", "send_team_winrate"):
             if k in raw:
                 setattr(aa, k, bool(raw[k]))
         for k in ("ban_priority", "pick_priority"):
@@ -619,6 +624,8 @@ class LcuBridge(QObject):
                 if self._champ_select:
                     self._champ_select = {}
                     self.champSelectChanged.emit()
+                if new_phase in ("None", "Lobby"):
+                    self._winrate_sent_game_ids.clear()
                 if new_phase in ("None", "Lobby") and self._in_game:
                     self._in_game = {}
                     self.inGameChanged.emit()
@@ -668,6 +675,8 @@ class LcuBridge(QObject):
         if not self._client.is_connected():
             self._set_matches_loading(False)
             return
+        self._matches_request_seq += 1
+        request_seq = self._matches_request_seq
         self._set_matches_loading(True)
         try:
             if not puuid:
@@ -675,15 +684,24 @@ class LcuBridge(QObject):
             if not puuid:
                 me = await api.current_summoner(self._client)
                 puuid = me["puuid"]
-            raw = await api.match_history(self._client, puuid, 0, max(0, count - 1))
-            games = raw.get("games", {}).get("games", [])
+            games: list[dict[str, Any]] = []
+            for begin in range(0, count, 20):
+                end = min(begin + 19, count - 1)
+                raw = await api.match_history(self._client, puuid, begin, end)
+                batch = raw.get("games", {}).get("games", [])
+                games.extend(batch)
+                if request_seq != self._matches_request_seq or len(batch) < (end - begin + 1):
+                    break
+            if request_seq != self._matches_request_seq:
+                return
             self._matches = [self._project_match(g) for g in games]
             self.matchesChanged.emit()
         except Exception as e:  # noqa: BLE001
             log.exception("load matches failed: %s", e)
             self.errorOccurred.emit(str(e))
         finally:
-            self._set_matches_loading(False)
+            if request_seq == self._matches_request_seq:
+                self._set_matches_loading(False)
 
     async def _load_ranked(self, puuid: str | None = None) -> None:
         if not self._client.is_connected():
@@ -713,6 +731,7 @@ class LcuBridge(QObject):
         try:
             g = await api.game_detail(self._client, game_id)
             projected = self._project_match_detail(g)
+            self._preload_match_detail_icons(projected)
             self._match_detail = projected
             # LRU: keep last 64 details
             self._match_detail_cache[game_id] = projected
@@ -726,6 +745,36 @@ class LcuBridge(QObject):
             self._match_detail = {"error": str(e), "gameId": game_id}
             self.matchDetailChanged.emit()
             self.errorOccurred.emit(str(e))
+
+    def _preload_match_detail_icons(self, detail: dict[str, Any]) -> None:
+        if self._image_provider is None or not hasattr(self._image_provider, "preload"):
+            return
+
+        paths: set[str] = set()
+
+        def add(path: str | None) -> None:
+            if path and path.startswith("/lol-game-data/assets/"):
+                paths.add(path)
+
+        for p in detail.get("participants") or []:
+            if not isinstance(p, dict):
+                continue
+            champion = self._champions_by_id.get(str(p.get("championId") or 0))
+            add((champion or {}).get("squarePortraitPath") or (champion or {}).get("iconPath"))
+            for iid in p.get("items") or []:
+                add((self._items_by_id.get(str(iid)) or {}).get("iconPath"))
+            for sid in (p.get("spell1Id"), p.get("spell2Id")):
+                add((self._spells_by_id.get(str(sid)) or {}).get("iconPath"))
+            for pid in p.get("perks") or []:
+                add((self._perks_by_id.get(str(pid)) or {}).get("iconPath"))
+            add((self._perk_styles_by_id.get(str(p.get("subStyleId") or 0)) or {}).get("iconPath"))
+            for aid in p.get("augments") or []:
+                add((self._augments_by_id.get(str(aid)) or {}).get("iconPath"))
+
+        try:
+            self._image_provider.preload(paths)
+        except Exception as e:  # noqa: BLE001
+            log.debug("match detail icon preload failed: %s", e)
 
     @staticmethod
     def _project_match_detail(g: dict) -> dict:
@@ -870,8 +919,51 @@ class LcuBridge(QObject):
                 data["preGroups"] = []
             self._champ_select = data
             self.champSelectChanged.emit()
+            self._spawn(self._maybe_send_team_winrates(data), name="bridge-team-winrates")
         except Exception as e:  # noqa: BLE001
             log.exception("champ select snapshot failed: %s", e)
+
+    async def _maybe_send_team_winrates(self, data: dict[str, Any]) -> None:
+        if not self._settings.auto_actions.send_team_winrate or not self._client.is_connected():
+            return
+        game_id = int(data.get("gameId") or 0)
+        if game_id <= 0 or game_id in self._winrate_sent_game_ids:
+            return
+        teammates = [
+            p for p in (data.get("myTeam") or [])
+            if isinstance(p, dict) and not p.get("is_me") and not p.get("isMe")
+        ]
+        lines: list[str] = []
+        for p in teammates:
+            name = p.get("display_name") or p.get("displayName") or "队友"
+            rate = p.get("recent_win_rate", p.get("recentWinRate", 0))
+            recent = p.get("recent") or []
+            if recent:
+                lines.append(f"{name}: 近{len(recent)}场 {round(float(rate) * 100)}%")
+            else:
+                lines.append(f"{name}: 无最近战绩")
+        if not lines:
+            return
+        message = "队友胜率 | " + " | ".join(lines)
+        try:
+            conversations = await api.chat_conversations(self._client)
+            conversation = next(
+                (
+                    c for c in conversations or []
+                    if isinstance(c, dict)
+                    and (
+                        str(c.get("type", "")).lower() in ("championselect", "champion-select")
+                        or "champion" in str(c.get("id", "")).lower()
+                    )
+                ),
+                None,
+            )
+            conversation_id = (conversation or {}).get("id") or "championSelect"
+            await api.send_chat_message(self._client, str(conversation_id), message)
+            self._winrate_sent_game_ids.add(game_id)
+            self.notify.emit("选人胜率", "已发送队友最近战绩胜率")
+        except Exception as e:  # noqa: BLE001
+            log.warning("send team winrates failed: %s", e)
 
     # ----- new fetchers -----
 
@@ -1012,7 +1104,7 @@ class LcuBridge(QObject):
             self.aramBuffsChanged.emit()
         except Exception as e:  # noqa: BLE001
             log.warning("aram buff fetch failed: %s", e)
-            self.errorOccurred.emit(str(e))
+            self.errorOccurred.emit("ARAM 增益数据加载失败，请稍后重试")
 
     def _lobby_name(self, user_input: str, default: str) -> str:
         name = (user_input or "").strip()

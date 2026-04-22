@@ -33,11 +33,13 @@ Item {
                 scale: 0.82
 
                 SequentialAnimation on scale {
+                    running: root.visible
                     loops: Animation.Infinite
                     NumberAnimation { to: 1.08; duration: 760; easing.type: Easing.OutCubic }
                     NumberAnimation { to: 0.82; duration: 760; easing.type: Easing.InCubic }
                 }
                 SequentialAnimation on opacity {
+                    running: root.visible
                     loops: Animation.Infinite
                     NumberAnimation { to: 0.04; duration: 760; easing.type: Easing.OutCubic }
                     NumberAnimation { to: 0.18; duration: 760; easing.type: Easing.InCubic }
@@ -63,6 +65,7 @@ Item {
                 anchors.fill: parent
 
                 NumberAnimation on rotation {
+                    running: root.visible
                     from: 0
                     to: 360
                     duration: 920
@@ -97,6 +100,7 @@ Item {
                     }
 
                     SequentialAnimation on sweep {
+                        running: root.visible
                         loops: Animation.Infinite
                         NumberAnimation { to: 4.35; duration: 620; easing.type: Easing.OutCubic }
                         NumberAnimation { to: 1.55; duration: 620; easing.type: Easing.InCubic }
@@ -123,6 +127,7 @@ Item {
             opacity: 0.78
 
             SequentialAnimation on opacity {
+                running: root.visible
                 loops: Animation.Infinite
                 NumberAnimation { to: 0.46; duration: 900; easing.type: Easing.InOutSine }
                 NumberAnimation { to: 0.86; duration: 900; easing.type: Easing.InOutSine }

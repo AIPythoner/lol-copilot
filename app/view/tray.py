@@ -53,6 +53,7 @@ class AppTray(QObject):
         self._is_paused = is_paused
         self._on_quit = on_quit
         self._tray: Optional[QSystemTrayIcon] = None
+        self._menu: Optional[QMenu] = None
         self._pause_action: Optional[QAction] = None
 
     def install(self) -> bool:
@@ -63,6 +64,7 @@ class AppTray(QObject):
         self._tray.setToolTip(APP_NAME)
 
         menu = QMenu()
+        self._menu = menu
 
         show_action = QAction("显示主窗口", menu)
         show_action.triggered.connect(self._on_show)

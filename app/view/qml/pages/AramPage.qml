@@ -14,9 +14,30 @@ FluScrollablePage {
 
     property var filtered: {
         var all = Lcu.aramBuffs || []
-        if (filterMode === 1) return all.filter(function(b){ return (b.damageDealt||1) > 1.01 })
-        if (filterMode === 2) return all.filter(function(b){ return (b.damageDealt||1) < 0.99 })
+        if (filterMode === 1) return all.filter(function(b){ return _isBuffed(b) })
+        if (filterMode === 2) return all.filter(function(b){ return _isNerfed(b) })
         return all
+    }
+
+    function _isBuffed(b) {
+        return (b.damageDealt || 1) > 1.01
+            || (b.damageReceived || 1) < 0.99
+            || (b.healingReceived || 1) > 1.01
+            || (b.shielding || 1) > 1.01
+            || (b.abilityHaste || 0) > 0
+            || (b.tenacity || 1) > 1.01
+            || (b.energyRegen || 1) > 1.01
+            || (b.attackSpeed || 1) > 1.01
+    }
+
+    function _isNerfed(b) {
+        return (b.damageDealt || 1) < 0.99
+            || (b.damageReceived || 1) > 1.01
+            || (b.healingReceived || 1) < 0.99
+            || (b.shielding || 1) < 0.99
+            || (b.tenacity || 1) < 0.99
+            || (b.energyRegen || 1) < 0.99
+            || (b.attackSpeed || 1) < 0.99
     }
 
     ColumnLayout {
@@ -31,7 +52,7 @@ FluScrollablePage {
                 anchors.fill: parent
                 spacing: 10
                 FluText {
-                    text: qsTr("来源：Community Dragon（随游戏版本自动更新）")
+                    text: qsTr("来源：ARAM Mayhem + Community Dragon 英雄数据（随版本更新）")
                     color: FluColors.Grey120
                     font.pixelSize: 12
                 }
@@ -81,7 +102,7 @@ FluScrollablePage {
     component BuffCard: FluArea {
         id: card
         property var buff: ({})
-        Layout.preferredHeight: 106
+        Layout.preferredHeight: Math.max(106, statsCol.implicitHeight + 24)
         Layout.fillWidth: true
         paddings: 10
 
@@ -96,6 +117,7 @@ FluScrollablePage {
             }
 
             ColumnLayout {
+                id: statsCol
                 Layout.fillWidth: true
                 spacing: 3
 
@@ -110,6 +132,12 @@ FluScrollablePage {
                 StatRow { label: qsTr("伤害"); value: buff.damageDealt || 1; positiveGood: true }
                 StatRow { label: qsTr("承伤"); value: buff.damageReceived || 1; positiveGood: false }
                 StatRow { label: qsTr("治疗"); value: buff.healingReceived || 1; positiveGood: true }
+                StatRow {
+                    visible: !!buff.shielding
+                    label: qsTr("护盾")
+                    value: buff.shielding || 1
+                    positiveGood: true
+                }
             }
         }
     }

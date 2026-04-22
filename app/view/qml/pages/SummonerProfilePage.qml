@@ -6,7 +6,7 @@ import "../components"
 import "../js/fmt.js" as Fmt
 
 FluScrollablePage {
-    launchMode: FluPageType.SingleTask
+    launchMode: FluPageType.Standard
     title: qsTr("召唤师主页")
 
     // Snapshot on mount — avoid re-binding when the user navigates to other

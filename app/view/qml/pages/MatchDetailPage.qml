@@ -28,8 +28,23 @@ FluScrollablePage {
     property var redTeam:  participants.filter(function(p){ return p.teamId === 200 })
     property var blueStat: teams.find(function(t){ return t.teamId === 100 }) || {}
     property var redStat:  teams.find(function(t){ return t.teamId === 200 }) || {}
+    property int visibleRows: 0
 
     Component.onCompleted: _captureInitial()
+    onParticipantsChanged: {
+        visibleRows = 0
+        if (participants.length > 0) rowRevealTimer.restart()
+    }
+
+    Timer {
+        id: rowRevealTimer
+        interval: 18
+        repeat: true
+        onTriggered: {
+            visibleRows = Math.min(participants.length, visibleRows + 2)
+            if (visibleRows >= participants.length) stop()
+        }
+    }
 
     function _captureInitial() {
         var md = Lcu.matchDetail || {}
@@ -138,12 +153,16 @@ FluScrollablePage {
 
         Repeater {
             model: blueTeam
-            delegate: ParticipantRow {
-                participant: modelData
+            delegate: Loader {
                 Layout.fillWidth: true
-                onClicked: modelData.puuid
-                    ? Lcu.openSummonerProfileByPuuid(modelData.puuid)
-                    : Lcu.openSummonerProfile(modelData.summonerName)
+                active: index < visibleRows
+                property var rowParticipant: modelData
+                sourceComponent: ParticipantRow {
+                    participant: rowParticipant
+                    onClicked: rowParticipant.puuid
+                        ? Lcu.openSummonerProfileByPuuid(rowParticipant.puuid)
+                        : Lcu.openSummonerProfile(rowParticipant.summonerName)
+                }
             }
         }
 
@@ -155,12 +174,16 @@ FluScrollablePage {
 
         Repeater {
             model: redTeam
-            delegate: ParticipantRow {
-                participant: modelData
+            delegate: Loader {
                 Layout.fillWidth: true
-                onClicked: modelData.puuid
-                    ? Lcu.openSummonerProfileByPuuid(modelData.puuid)
-                    : Lcu.openSummonerProfile(modelData.summonerName)
+                active: blueTeam.length + index < visibleRows
+                property var rowParticipant: modelData
+                sourceComponent: ParticipantRow {
+                    participant: rowParticipant
+                    onClicked: rowParticipant.puuid
+                        ? Lcu.openSummonerProfileByPuuid(rowParticipant.puuid)
+                        : Lcu.openSummonerProfile(rowParticipant.summonerName)
+                }
             }
         }
 

@@ -192,5 +192,9 @@ FluScrollablePage {
                 }
             }
         }
+
+        AutoActionsPanel {
+            Layout.fillWidth: true
+        }
     }
 }
