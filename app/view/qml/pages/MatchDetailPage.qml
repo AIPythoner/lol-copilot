@@ -155,6 +155,7 @@ FluScrollablePage {
             model: blueTeam
             delegate: Loader {
                 Layout.fillWidth: true
+                Layout.preferredHeight: active ? 76 : 0
                 active: index < visibleRows
                 property var rowParticipant: modelData
                 sourceComponent: ParticipantRow {
@@ -176,6 +177,7 @@ FluScrollablePage {
             model: redTeam
             delegate: Loader {
                 Layout.fillWidth: true
+                Layout.preferredHeight: active ? 76 : 0
                 active: blueTeam.length + index < visibleRows
                 property var rowParticipant: modelData
                 sourceComponent: ParticipantRow {
