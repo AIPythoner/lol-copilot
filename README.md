@@ -72,6 +72,17 @@ python app.py --cli history --count 20
 python app.py --cli watch        # 实时订阅 LCU 事件
 ```
 
+## 打包 / Release
+
+项目使用 GitHub Actions + PyInstaller 生成 Windows one-dir 包。推送 `v*` tag 后会自动构建并发布 Release：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Release 产物是 `lol-agent-windows-<version>.zip`，解压后运行 `lol-agent/lol-agent.exe`。也可以在 GitHub Actions 页面手动触发 `Build Windows Release`，手动构建只上传 artifact，不创建 Release。
+
 ## 目录
 
 ```

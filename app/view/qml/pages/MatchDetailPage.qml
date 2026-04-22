@@ -158,8 +158,10 @@ FluScrollablePage {
                 Layout.preferredHeight: active ? 76 : 0
                 active: index < visibleRows
                 property var rowParticipant: modelData
+                property int rowOrder: index
                 sourceComponent: ParticipantRow {
                     participant: rowParticipant
+                    revealOrder: rowOrder
                     onClicked: rowParticipant.puuid
                         ? Lcu.openSummonerProfileByPuuid(rowParticipant.puuid)
                         : Lcu.openSummonerProfile(rowParticipant.summonerName)
@@ -180,8 +182,10 @@ FluScrollablePage {
                 Layout.preferredHeight: active ? 76 : 0
                 active: blueTeam.length + index < visibleRows
                 property var rowParticipant: modelData
+                property int rowOrder: blueTeam.length + index
                 sourceComponent: ParticipantRow {
                     participant: rowParticipant
+                    revealOrder: rowOrder
                     onClicked: rowParticipant.puuid
                         ? Lcu.openSummonerProfileByPuuid(rowParticipant.puuid)
                         : Lcu.openSummonerProfile(rowParticipant.summonerName)
@@ -237,10 +241,21 @@ FluScrollablePage {
     component ParticipantRow: FluArea {
         id: row
         property var participant: ({})
+        property int revealOrder: 0
+        property bool iconsReady: false
         signal clicked()
 
         Layout.preferredHeight: 76
         paddings: 10
+
+        Component.onCompleted: iconDelay.start()
+
+        Timer {
+            id: iconDelay
+            interval: 70 + row.revealOrder * 24
+            repeat: false
+            onTriggered: row.iconsReady = true
+        }
 
         MouseArea {
             anchors.fill: parent
@@ -254,35 +269,52 @@ FluScrollablePage {
             spacing: 12
 
             // icon block
-            RowLayout {
-                spacing: 4
+            Item {
+                Layout.preferredWidth: detail.usesAugments === true ? 144 : 118
+                Layout.preferredHeight: 48
                 Layout.alignment: Qt.AlignVCenter
-                ChampionIcon {
-                    championId: participant.championId || 0
-                    size: 48
+
+                Rectangle {
+                    anchors.fill: parent
+                    visible: !row.iconsReady
+                    radius: 8
+                    color: FluTheme.dark ? "#242424" : "#ececf2"
+                    opacity: 0.45
                 }
-                SpellPair {
-                    spell1: participant.spell1Id || 0
-                    spell2: participant.spell2Id || 0
-                    size: 22
-                }
-                // Arena / Hexakill modes show augments instead of runes
-                RowLayout {
-                    visible: detail.usesAugments === true
-                    spacing: 2
-                    Repeater {
-                        model: (participant.augments || []).filter(function(a){ return a > 0 })
-                        delegate: AugmentIcon {
-                            augmentId: modelData
-                            size: 26
+
+                Loader {
+                    anchors.fill: parent
+                    active: row.iconsReady
+                    sourceComponent: RowLayout {
+                        spacing: 4
+                        ChampionIcon {
+                            championId: participant.championId || 0
+                            size: 48
+                        }
+                        SpellPair {
+                            spell1: participant.spell1Id || 0
+                            spell2: participant.spell2Id || 0
+                            size: 22
+                        }
+                        // Arena / Hexakill modes show augments instead of runes
+                        RowLayout {
+                            visible: detail.usesAugments === true
+                            spacing: 2
+                            Repeater {
+                                model: (participant.augments || []).filter(function(a){ return a > 0 })
+                                delegate: AugmentIcon {
+                                    augmentId: modelData
+                                    size: 26
+                                }
+                            }
+                        }
+                        RuneBadge {
+                            visible: !detail.usesAugments
+                            keystoneId: (participant.perks && participant.perks[0]) || 0
+                            subStyleId: participant.subStyleId || 0
+                            size: 40
                         }
                     }
-                }
-                RuneBadge {
-                    visible: !detail.usesAugments
-                    keystoneId: (participant.perks && participant.perks[0]) || 0
-                    subStyleId: participant.subStyleId || 0
-                    size: 40
                 }
             }
 
@@ -339,10 +371,25 @@ FluScrollablePage {
             }
 
             // items
-            ItemRow {
-                items: participant.items || []
-                slotSize: 28
+            Item {
+                Layout.preferredWidth: 7 * 28 + 6 * 3 + 6
+                Layout.preferredHeight: 28
                 Layout.alignment: Qt.AlignVCenter
+                Rectangle {
+                    anchors.fill: parent
+                    visible: !row.iconsReady
+                    radius: 4
+                    color: FluTheme.dark ? "#242424" : "#ececf2"
+                    opacity: 0.35
+                }
+                Loader {
+                    anchors.fill: parent
+                    active: row.iconsReady
+                    sourceComponent: ItemRow {
+                        items: participant.items || []
+                        slotSize: 28
+                    }
+                }
             }
 
             // score
