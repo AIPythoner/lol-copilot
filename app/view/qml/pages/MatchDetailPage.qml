@@ -29,6 +29,22 @@ FluScrollablePage {
     property var blueStat: teams.find(function(t){ return t.teamId === 100 }) || {}
     property var redStat:  teams.find(function(t){ return t.teamId === 200 }) || {}
     property int visibleRows: 0
+    property bool compactRows: width < 980
+    property int rowGap: compactRows ? 6 : 8
+    property int participantRowHeight: compactRows ? 72 : 76
+    property int loadoutColWidth: detail.usesAugments === true
+        ? (compactRows ? 146 : 160)
+        : (compactRows ? 116 : 124)
+    property int nameColWidth: compactRows ? 128 : 170
+    property int kdaColWidth: compactRows ? 78 : 96
+    property int csColWidth: compactRows ? 60 : 72
+    property int damageColWidth: compactRows ? 82 : 110
+    property int itemSize: compactRows ? 22 : 25
+    property int itemsColWidth: 7 * itemSize + 7 * 3 + 6
+    property int scoreColWidth: compactRows ? 60 : 66
+    property int champIconSize: compactRows ? 44 : 48
+    property int spellIconSize: compactRows ? 20 : 22
+    property int augmentIconSize: compactRows ? 22 : 24
 
     Component.onCompleted: _captureInitial()
     onParticipantsChanged: {
@@ -155,7 +171,7 @@ FluScrollablePage {
             model: blueTeam
             delegate: Loader {
                 Layout.fillWidth: true
-                Layout.preferredHeight: active ? 76 : 0
+                Layout.preferredHeight: active ? page.participantRowHeight : 0
                 active: index < visibleRows
                 property var rowParticipant: modelData
                 property int rowOrder: index
@@ -179,7 +195,7 @@ FluScrollablePage {
             model: redTeam
             delegate: Loader {
                 Layout.fillWidth: true
-                Layout.preferredHeight: active ? 76 : 0
+                Layout.preferredHeight: active ? page.participantRowHeight : 0
                 active: blueTeam.length + index < visibleRows
                 property var rowParticipant: modelData
                 property int rowOrder: blueTeam.length + index
@@ -245,8 +261,9 @@ FluScrollablePage {
         property bool iconsReady: false
         signal clicked()
 
-        Layout.preferredHeight: 76
+        Layout.preferredHeight: page.participantRowHeight
         paddings: 10
+        clip: true
 
         Component.onCompleted: iconDelay.start()
 
@@ -266,13 +283,16 @@ FluScrollablePage {
 
         RowLayout {
             anchors.fill: parent
-            spacing: 12
+            spacing: page.rowGap
 
             // icon block
             Item {
-                Layout.preferredWidth: detail.usesAugments === true ? 144 : 118
-                Layout.preferredHeight: 48
+                Layout.preferredWidth: page.loadoutColWidth
+                Layout.minimumWidth: page.loadoutColWidth
+                Layout.maximumWidth: page.loadoutColWidth
+                Layout.preferredHeight: page.compactRows ? 50 : 52
                 Layout.alignment: Qt.AlignVCenter
+                clip: true
 
                 Rectangle {
                     anchors.fill: parent
@@ -287,32 +307,47 @@ FluScrollablePage {
                     active: row.iconsReady
                     sourceComponent: RowLayout {
                         spacing: 4
+                        anchors.verticalCenter: parent.verticalCenter
                         ChampionIcon {
                             championId: participant.championId || 0
-                            size: 48
+                            size: page.champIconSize
+                            Layout.alignment: Qt.AlignVCenter
                         }
                         SpellPair {
                             spell1: participant.spell1Id || 0
                             spell2: participant.spell2Id || 0
-                            size: 22
+                            size: page.spellIconSize
+                            Layout.alignment: Qt.AlignVCenter
                         }
                         // Arena / Hexakill modes show augments instead of runes
-                        RowLayout {
+                        GridLayout {
                             visible: detail.usesAugments === true
-                            spacing: 2
+                            columns: 3
+                            columnSpacing: 2
+                            rowSpacing: 2
+                            Layout.preferredWidth: 3 * page.augmentIconSize + 4
+                            Layout.preferredHeight: 2 * page.augmentIconSize + 2
+                            Layout.alignment: Qt.AlignVCenter
                             Repeater {
-                                model: (participant.augments || []).filter(function(a){ return a > 0 })
+                                model: (participant.augments || []).filter(function(a){ return a > 0 }).slice(0, 6)
                                 delegate: AugmentIcon {
                                     augmentId: modelData
-                                    size: 26
+                                    size: page.augmentIconSize
                                 }
                             }
                         }
-                        RuneBadge {
+                        Item {
                             visible: !detail.usesAugments
-                            keystoneId: (participant.perks && participant.perks[0]) || 0
-                            subStyleId: participant.subStyleId || 0
-                            size: 40
+                            Layout.preferredWidth: page.compactRows ? 42 : 46
+                            Layout.preferredHeight: page.compactRows ? 42 : 46
+                            Layout.alignment: Qt.AlignVCenter
+
+                            RuneBadge {
+                                anchors.centerIn: parent
+                                keystoneId: (participant.perks && participant.perks[0]) || 0
+                                subStyleId: participant.subStyleId || 0
+                                size: page.compactRows ? 36 : 40
+                            }
                         }
                     }
                 }
@@ -320,8 +355,12 @@ FluScrollablePage {
 
             // name + rank
             ColumnLayout {
-                Layout.preferredWidth: 180
+                Layout.preferredWidth: page.nameColWidth
+                Layout.minimumWidth: page.nameColWidth
+                Layout.maximumWidth: page.nameColWidth
+                Layout.alignment: Qt.AlignVCenter
                 spacing: 2
+                clip: true
                 FluText {
                     text: participant.summonerName || "?"
                     font.bold: true
@@ -337,8 +376,12 @@ FluScrollablePage {
 
             // kda
             ColumnLayout {
-                Layout.preferredWidth: 110
+                Layout.preferredWidth: page.kdaColWidth
+                Layout.minimumWidth: page.kdaColWidth
+                Layout.maximumWidth: page.kdaColWidth
+                Layout.alignment: Qt.AlignVCenter
                 spacing: 2
+                clip: true
                 FluText {
                     text: (participant.kills || 0) + " / "
                         + "<span style=\"color:#c64343\">" + (participant.deaths || 0) + "</span> / "
@@ -355,15 +398,21 @@ FluScrollablePage {
 
             // cs + gold
             ColumnLayout {
-                Layout.preferredWidth: 100
+                Layout.preferredWidth: page.csColWidth
+                Layout.minimumWidth: page.csColWidth
+                Layout.maximumWidth: page.csColWidth
+                Layout.alignment: Qt.AlignVCenter
                 spacing: 2
+                clip: true
                 FluText { text: "CS " + (participant.cs || 0); font.pixelSize: 12 }
                 FluText { text: Fmt.bigNum(participant.gold || 0); color: FluColors.Grey120; font.pixelSize: 11 }
             }
 
             // damage bar
             DamageBar {
-                Layout.preferredWidth: 140
+                Layout.preferredWidth: page.damageColWidth
+                Layout.minimumWidth: page.damageColWidth
+                Layout.maximumWidth: page.damageColWidth
                 Layout.alignment: Qt.AlignVCenter
                 damage: participant.damage || 0
                 share: participant.damageShare || 0
@@ -372,9 +421,12 @@ FluScrollablePage {
 
             // items
             Item {
-                Layout.preferredWidth: 7 * 28 + 6 * 3 + 6
-                Layout.preferredHeight: 28
+                Layout.preferredWidth: page.itemsColWidth
+                Layout.minimumWidth: page.itemsColWidth
+                Layout.maximumWidth: page.itemsColWidth
+                Layout.preferredHeight: page.itemSize
                 Layout.alignment: Qt.AlignVCenter
+                clip: true
                 Rectangle {
                     anchors.fill: parent
                     visible: !row.iconsReady
@@ -387,16 +439,25 @@ FluScrollablePage {
                     active: row.iconsReady
                     sourceComponent: ItemRow {
                         items: participant.items || []
-                        slotSize: 28
+                        slotSize: page.itemSize
                     }
                 }
             }
 
             // score
-            ScoreBadge {
-                score: participant.score || 0
-                tags: participant.tags || []
+            Item {
+                Layout.preferredWidth: page.scoreColWidth
+                Layout.minimumWidth: page.scoreColWidth
+                Layout.maximumWidth: page.scoreColWidth
                 Layout.alignment: Qt.AlignVCenter
+                Layout.preferredHeight: 28
+                clip: true
+
+                ScoreBadge {
+                    anchors.centerIn: parent
+                    score: participant.score || 0
+                    tags: participant.tags || []
+                }
             }
         }
     }

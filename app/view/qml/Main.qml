@@ -73,6 +73,9 @@ FluWindow {
         anchors.topMargin: 30
         displayMode: FluNavigationViewType.Open
         pageMode: FluNavigationViewType.Stack
+        cellWidth: 188
+        cellHeight: 36
+        navCompactWidth: 46
         logo: Qt.resolvedUrl("../assets/app-icon-64.png")
         title: qsTr("LoL Agent")
 
