@@ -1,0 +1,9 @@
+CLIENT_PROCESS_NAMES = ("LeagueClientUx.exe", "LeagueClientUx")
+
+LCU_POLL_INTERVAL_SEC = 2.0
+LCU_REQUEST_TIMEOUT_SEC = 15.0
+
+WS_RECONNECT_INTERVAL_SEC = 2.0
+WS_SUBSCRIBE_EVENT = "OnJsonApiEvent"
+
+APP_NAME = "lol-agent"

@@ -1,0 +1,15 @@
+module components
+ChampionIcon 1.0 ChampionIcon.qml
+ItemSlot 1.0 ItemSlot.qml
+ItemRow 1.0 ItemRow.qml
+SpellIcon 1.0 SpellIcon.qml
+SpellPair 1.0 SpellPair.qml
+RuneBadge 1.0 RuneBadge.qml
+TierBadge 1.0 TierBadge.qml
+PositionIcon 1.0 PositionIcon.qml
+ScoreBadge 1.0 ScoreBadge.qml
+DamageBar 1.0 DamageBar.qml
+WinLossDots 1.0 WinLossDots.qml
+QueueBadge 1.0 QueueBadge.qml
+ProfileIcon 1.0 ProfileIcon.qml
+AugmentIcon 1.0 AugmentIcon.qml

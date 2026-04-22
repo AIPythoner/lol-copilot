@@ -1,0 +1,9 @@
+PySide6>=6.6
+PySide6-FluentUI-QML>=1.6.7
+qasync>=0.27
+httpx>=0.27
+websockets>=12.0
+psutil>=5.9
+pydantic>=2.6
+selectolax>=0.3.21
+platformdirs>=4.2

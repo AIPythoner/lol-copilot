@@ -1,0 +1,331 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import FluentUI
+import "../components"
+import "../js/fmt.js" as Fmt
+
+FluScrollablePage {
+    launchMode: FluPageType.SingleTask
+    title: qsTr("对局详情")
+
+    // Each pushed MatchDetailPage locks onto the game it was opened for so that
+    // subsequent clicks (which overwrite Lcu.matchDetail) don't make every
+    // previous page in the nav stack re-render 120 images again. Without this,
+    // going Matches → Detail → Profile → Match → Detail makes all pages fight
+    // for image bandwidth and the UI visibly freezes.
+    property int myGameId: -1
+    property var detail: ({})
+    property bool isLoading: detail.loading === true || (myGameId > 0 && !detail.participants)
+    property bool hasError: !!detail.error
+    property var participants: detail.participants || []
+    property var teams: detail.teamStats || []
+    property var blueTeam: participants.filter(function(p){ return p.teamId === 100 })
+    property var redTeam:  participants.filter(function(p){ return p.teamId === 200 })
+    property var blueStat: teams.find(function(t){ return t.teamId === 100 }) || {}
+    property var redStat:  teams.find(function(t){ return t.teamId === 200 }) || {}
+
+    Component.onCompleted: _captureInitial()
+
+    function _captureInitial() {
+        var md = Lcu.matchDetail || {}
+        if (md.gameId) {
+            myGameId = md.gameId
+            if (!md.loading && md.participants) detail = md
+        }
+    }
+
+    Connections {
+        target: Lcu
+        function onMatchDetailChanged() {
+            var md = Lcu.matchDetail || {}
+            if (myGameId <= 0 && md.gameId) myGameId = md.gameId
+            if (md.gameId === myGameId && !md.loading && md.participants) {
+                detail = md
+            }
+        }
+    }
+
+    // ===== loading / error overlays =====
+    ColumnLayout {
+        visible: isLoading || hasError
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: 16
+
+        FluProgressRing {
+            visible: isLoading
+            Layout.alignment: Qt.AlignHCenter
+            Layout.preferredWidth: 48
+            Layout.preferredHeight: 48
+        }
+        FluText {
+            visible: isLoading
+            text: qsTr("加载对局详情…")
+            color: FluColors.Grey120
+            font: FluTextStyle.Subtitle
+            Layout.alignment: Qt.AlignHCenter
+        }
+        FluText {
+            visible: hasError
+            text: qsTr("加载失败：") + (detail.error || "")
+            color: "#c64343"
+            Layout.alignment: Qt.AlignHCenter
+        }
+    }
+
+    ColumnLayout {
+        visible: !isLoading && !hasError && participants.length > 0
+        width: parent.width
+        spacing: 14
+
+        // ===== header =====
+        FluArea {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 90
+            paddings: 16
+            RowLayout {
+                anchors.fill: parent
+                spacing: 14
+
+                Rectangle {
+                    Layout.preferredWidth: 6
+                    Layout.fillHeight: true
+                    radius: 3
+                    color: blueStat.win ? "#4684d4" : "#c64343"
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 4
+
+                    RowLayout {
+                        spacing: 10
+                        QueueBadge { queueId: detail.queueId || 0 }
+                        FluText {
+                            text: Fmt.absoluteTime(detail.gameCreation)
+                            color: FluColors.Grey120
+                            font.pixelSize: 12
+                        }
+                        FluText {
+                            text: Fmt.relativeTime(detail.gameCreation)
+                            color: FluColors.Grey120
+                            font.pixelSize: 12
+                        }
+                    }
+                    FluText {
+                        text: qsTr("时长 ") + Fmt.duration(detail.gameDuration || 0)
+                        color: FluColors.Grey120
+                        font.pixelSize: 12
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+
+                FluText {
+                    text: blueStat.win ? qsTr("蓝方胜利") : qsTr("蓝方失败")
+                    font: FluTextStyle.Title
+                    color: blueStat.win ? "#4684d4" : "#c64343"
+                }
+            }
+        }
+
+        // ===== blue team header =====
+        TeamHeader {
+            teamId: 100
+            teamStat: blueStat
+        }
+
+        Repeater {
+            model: blueTeam
+            delegate: ParticipantRow {
+                participant: modelData
+                Layout.fillWidth: true
+                onClicked: modelData.puuid
+                    ? Lcu.openSummonerProfileByPuuid(modelData.puuid)
+                    : Lcu.openSummonerProfile(modelData.summonerName)
+            }
+        }
+
+        // ===== red team header =====
+        TeamHeader {
+            teamId: 200
+            teamStat: redStat
+        }
+
+        Repeater {
+            model: redTeam
+            delegate: ParticipantRow {
+                participant: modelData
+                Layout.fillWidth: true
+                onClicked: modelData.puuid
+                    ? Lcu.openSummonerProfileByPuuid(modelData.puuid)
+                    : Lcu.openSummonerProfile(modelData.summonerName)
+            }
+        }
+
+    }
+
+    // ===== inline components =====
+    component TeamHeader: FluArea {
+        property int teamId: 100
+        property var teamStat: ({})
+        Layout.fillWidth: true
+        Layout.preferredHeight: 52
+        paddings: 12
+        color: teamId === 100
+            ? (FluTheme.dark ? "#1a2638" : "#e3ecf8")
+            : (FluTheme.dark ? "#38191a" : "#f8e3e3")
+        border.color: "transparent"
+
+        RowLayout {
+            anchors.fill: parent
+            spacing: 18
+            FluText {
+                text: teamId === 100 ? qsTr("蓝方") : qsTr("红方")
+                font: FluTextStyle.Subtitle
+                color: teamId === 100 ? "#4684d4" : "#c64343"
+            }
+            FluText {
+                text: teamStat.win ? qsTr("胜") : qsTr("败")
+                color: teamStat.win ? "#3ea04a" : "#c64343"
+                font.bold: true
+            }
+            Rectangle { width: 1; height: 20; color: FluColors.Grey120; opacity: 0.3 }
+            StatChip { icon: "⚔"; text: (teamStat.kills || 0) + qsTr(" 击杀") }
+            StatChip { icon: "💰"; text: Fmt.bigNum(teamStat.gold || 0) }
+            StatChip { icon: "🏰"; text: (teamStat.towerKills || 0) + qsTr(" 塔") }
+            StatChip { icon: "🐉"; text: (teamStat.dragonKills || 0) + qsTr(" 龙") }
+            StatChip { icon: "👑"; text: (teamStat.baronKills || 0) + qsTr(" 男爵") }
+            Item { Layout.fillWidth: true }
+        }
+    }
+
+    component StatChip: RowLayout {
+        property string icon: ""
+        property string text: ""
+        spacing: 4
+        FluText { text: icon; font.pixelSize: 14 }
+        FluText { text: parent.text; color: FluColors.Grey120; font.pixelSize: 12 }
+    }
+
+    component ParticipantRow: FluArea {
+        id: row
+        property var participant: ({})
+        signal clicked()
+
+        Layout.preferredHeight: 76
+        paddings: 10
+
+        MouseArea {
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: row.clicked()
+        }
+
+        RowLayout {
+            anchors.fill: parent
+            spacing: 12
+
+            // icon block
+            RowLayout {
+                spacing: 4
+                Layout.alignment: Qt.AlignVCenter
+                ChampionIcon {
+                    championId: participant.championId || 0
+                    size: 48
+                }
+                SpellPair {
+                    spell1: participant.spell1Id || 0
+                    spell2: participant.spell2Id || 0
+                    size: 22
+                }
+                // Arena / Hexakill modes show augments instead of runes
+                RowLayout {
+                    visible: detail.usesAugments === true
+                    spacing: 2
+                    Repeater {
+                        model: (participant.augments || []).filter(function(a){ return a > 0 })
+                        delegate: AugmentIcon {
+                            augmentId: modelData
+                            size: 26
+                        }
+                    }
+                }
+                RuneBadge {
+                    visible: !detail.usesAugments
+                    keystoneId: (participant.perks && participant.perks[0]) || 0
+                    subStyleId: participant.subStyleId || 0
+                    size: 40
+                }
+            }
+
+            // name + rank
+            ColumnLayout {
+                Layout.preferredWidth: 180
+                spacing: 2
+                FluText {
+                    text: participant.summonerName || "?"
+                    font.bold: true
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
+                FluText {
+                    text: qsTr("分数 ") + Math.round(participant.score || 0)
+                    color: FluColors.Grey120
+                    font.pixelSize: 11
+                }
+            }
+
+            // kda
+            ColumnLayout {
+                Layout.preferredWidth: 110
+                spacing: 2
+                FluText {
+                    text: (participant.kills || 0) + " / "
+                        + "<span style=\"color:#c64343\">" + (participant.deaths || 0) + "</span> / "
+                        + (participant.assists || 0)
+                    textFormat: Text.RichText
+                    font.bold: true
+                }
+                FluText {
+                    text: Fmt.kdaRatio(participant.kills||0, participant.deaths||0, participant.assists||0) + " KDA"
+                    color: Fmt.kdaColor(parseFloat(Fmt.kdaRatio(participant.kills||0, participant.deaths||0, participant.assists||0)))
+                    font.pixelSize: 11
+                }
+            }
+
+            // cs + gold
+            ColumnLayout {
+                Layout.preferredWidth: 100
+                spacing: 2
+                FluText { text: "CS " + (participant.cs || 0); font.pixelSize: 12 }
+                FluText { text: Fmt.bigNum(participant.gold || 0); color: FluColors.Grey120; font.pixelSize: 11 }
+            }
+
+            // damage bar
+            DamageBar {
+                Layout.preferredWidth: 140
+                Layout.alignment: Qt.AlignVCenter
+                damage: participant.damage || 0
+                share: participant.damageShare || 0
+                teamId: participant.teamId || 100
+            }
+
+            // items
+            ItemRow {
+                items: participant.items || []
+                slotSize: 28
+                Layout.alignment: Qt.AlignVCenter
+            }
+
+            // score
+            ScoreBadge {
+                score: participant.score || 0
+                tags: participant.tags || []
+                Layout.alignment: Qt.AlignVCenter
+            }
+        }
+    }
+}
