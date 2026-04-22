@@ -12,6 +12,12 @@ FluScrollablePage {
     property string lobbyPassword: ""
     property int profileIconInput: 0
 
+    Component.onCompleted: if (Lcu.connected) Lcu.refreshHextech()
+    Connections {
+        target: Lcu
+        function onConnectedChanged() { if (Lcu.connected) Lcu.refreshHextech() }
+    }
+
     ColumnLayout {
         width: parent.width
         spacing: 14
@@ -188,6 +194,133 @@ FluScrollablePage {
                         text: qsTr("请勿打扰")
                         enabled: Lcu.connected
                         onClicked: Lcu.applyAvailability("dnd")
+                    }
+                }
+            }
+        }
+
+        // ===== Hextech loot =====
+        FluArea {
+            Layout.fillWidth: true
+            Layout.preferredHeight: hexCol.implicitHeight + 32
+            paddings: 14
+            ColumnLayout {
+                id: hexCol
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                spacing: 10
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+                    FluText { text: qsTr("赫克斯科技工坊"); font: FluTextStyle.Subtitle }
+                    Item { Layout.fillWidth: true }
+                    FluIconButton {
+                        iconSource: FluentIcons.Refresh
+                        iconSize: 14
+                        enabled: Lcu.connected
+                        onClicked: Lcu.refreshHextech()
+                    }
+                }
+
+                // Shortcut object — we reference hex.wallet, hex.totalChests
+                // etc. instead of chaining through `Lcu.hextech &&` every time.
+                property var hex: Lcu.hextech || {}
+                property var wallet: (Lcu.hextech && Lcu.hextech.wallet) || {}
+                property int redundantBe: (Lcu.hextech && Lcu.hextech.redundantBe) || 0
+                property int redundantCount: (Lcu.hextech && Lcu.hextech.redundantShards && Lcu.hextech.redundantShards.length) || 0
+
+                // Wallet row
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 16
+                    FluText {
+                        text: qsTr("蓝色精粹 ") + (hexCol.wallet.blue || 0).toLocaleString(Qt.locale(), "f", 0)
+                        font.pixelSize: 12
+                    }
+                    Rectangle { width: 1; height: 16; color: FluColors.Grey120; opacity: 0.3 }
+                    FluText {
+                        text: qsTr("橙色精粹 ") + (hexCol.wallet.orange || 0).toLocaleString(Qt.locale(), "f", 0)
+                        font.pixelSize: 12
+                    }
+                    Rectangle { width: 1; height: 16; color: FluColors.Grey120; opacity: 0.3 }
+                    FluText {
+                        text: qsTr("钥匙 ") + (hexCol.wallet.keys || 0) + "  ·  " + qsTr("碎片 ") + (hexCol.wallet.keyFragments || 0)
+                        font.pixelSize: 12
+                        color: FluColors.Grey120
+                    }
+                }
+
+                FluDivider { Layout.fillWidth: true }
+
+                // Inventory summary row
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 20
+
+                    ColumnLayout {
+                        spacing: 1
+                        FluText { text: qsTr("宝箱"); color: FluColors.Grey120; font.pixelSize: 11 }
+                        FluText {
+                            text: (hexCol.hex.totalChests || 0) + ""
+                            font: FluTextStyle.Subtitle
+                        }
+                    }
+                    ColumnLayout {
+                        spacing: 1
+                        FluText { text: qsTr("碎片总数"); color: FluColors.Grey120; font.pixelSize: 11 }
+                        FluText {
+                            text: (hexCol.hex.totalShards || 0) + ""
+                            font: FluTextStyle.Subtitle
+                        }
+                    }
+                    ColumnLayout {
+                        spacing: 1
+                        FluText { text: qsTr("重复碎片"); color: FluColors.Grey120; font.pixelSize: 11 }
+                        FluText {
+                            text: hexCol.redundantCount + ""
+                            font: FluTextStyle.Subtitle
+                            color: hexCol.redundantBe > 0 ? "#d4a04a" : undefined
+                        }
+                    }
+                    ColumnLayout {
+                        spacing: 1
+                        FluText { text: qsTr("预计可得 BE"); color: FluColors.Grey120; font.pixelSize: 11 }
+                        FluText {
+                            text: hexCol.redundantBe > 0
+                                ? "+" + hexCol.redundantBe.toLocaleString(Qt.locale(), "f", 0)
+                                : "0"
+                            font: FluTextStyle.Subtitle
+                            color: hexCol.redundantBe > 0 ? "#3ea04a" : FluColors.Grey120
+                        }
+                    }
+                    Item { Layout.fillWidth: true }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+                    FluFilledButton {
+                        text: qsTr("一键整理")
+                        enabled: Lcu.connected
+                        onClicked: Lcu.tidyHextech()
+                    }
+                    FluButton {
+                        text: qsTr("只开宝箱")
+                        enabled: Lcu.connected && (hexCol.hex.totalChests || 0) > 0
+                        onClicked: Lcu.openAllChests()
+                    }
+                    FluButton {
+                        text: qsTr("只分解重复")
+                        enabled: Lcu.connected && hexCol.redundantCount > 0
+                        onClicked: Lcu.disenchantRedundantShards()
+                    }
+                    Item { Layout.fillWidth: true }
+                    FluText {
+                        text: qsTr("仅开自动型宝箱与重复碎片，不会动你的代币与非重复皮肤")
+                        color: FluColors.Grey120
+                        font.pixelSize: 10
                     }
                 }
             }

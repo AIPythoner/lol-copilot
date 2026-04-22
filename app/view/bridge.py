@@ -59,6 +59,7 @@ class LcuBridge(QObject):
     searchResultChanged = Signal()
     aramBuffsChanged = Signal()
     inGameChanged = Signal()
+    hextechChanged = Signal()
     settingsChanged = Signal()
     errorOccurred = Signal(str)
     notify = Signal(str, str)  # title, body
@@ -94,6 +95,7 @@ class LcuBridge(QObject):
         self._search_result: dict[str, Any] = {}
         self._aram_buffs: list[dict[str, Any]] = []
         self._in_game: dict[str, Any] = {}
+        self._hextech: dict[str, Any] = {}
 
         self._settings: AppSettings = load_settings()
         self._client = LcuClient()
@@ -323,6 +325,10 @@ class LcuBridge(QObject):
     def inGame(self) -> dict:  # type: ignore[override]
         return self._in_game
 
+    @Property("QVariant", notify=hextechChanged)
+    def hextech(self) -> dict:  # type: ignore[override]
+        return self._hextech
+
     @Property("QVariant", notify=settingsChanged)
     def settings(self) -> dict:  # type: ignore[override]
         return self._settings.to_dict()
@@ -512,6 +518,39 @@ class LcuBridge(QObject):
             except Exception as e:  # noqa: BLE001
                 self.errorOccurred.emit(str(e))
         self._spawn(run())
+
+    # ----- QML-callable slots: Hextech loot -----
+
+    @Slot()
+    def refreshHextech(self) -> None:
+        self._spawn(self._refresh_hextech(), name="bridge-hextech-refresh")
+
+    @Slot()
+    def openAllChests(self) -> None:
+        self._spawn(
+            self._tidy_hextech(open_chests=True, disenchant=False),
+            name="bridge-hextech-open",
+        )
+
+    @Slot()
+    def disenchantRedundantShards(self) -> None:
+        self._spawn(
+            self._tidy_hextech(open_chests=False, disenchant=True),
+            name="bridge-hextech-disenchant",
+        )
+
+    @Slot()
+    def tidyHextech(self) -> None:
+        self._spawn(
+            self._tidy_hextech(open_chests=True, disenchant=True),
+            name="bridge-hextech-tidy",
+        )
+
+    # ----- QML-callable slots: replays -----
+
+    @Slot(float)
+    def watchReplay(self, game_id: float) -> None:
+        self._spawn(self._watch_replay(int(game_id)), name="bridge-replay")
 
     # ----- QML-callable slots: settings -----
 
@@ -982,6 +1021,182 @@ class LcuBridge(QObject):
             "teamStats": team_stats,
             "usesAugments": uses_augments,
         }
+
+    # ----- hextech loot / replays -----
+
+    async def _refresh_hextech(self) -> None:
+        if not self._client.is_connected():
+            return
+        try:
+            loot = await api.player_loot(self._client)
+        except Exception as e:  # noqa: BLE001
+            log.warning("player_loot failed: %s", e)
+            self.errorOccurred.emit(str(e))
+            return
+        self._hextech = self._project_hextech(loot)
+        self.hextechChanged.emit()
+
+    @staticmethod
+    def _project_hextech(loot: list[dict]) -> dict:
+        """Collapse ``/lol-loot/v1/player-loot`` into the shape the UI needs.
+
+        LCU returns every token, currency, shard, and chest in a flat list
+        keyed by ``type`` (``CHEST``, ``CHAMPION_RENTAL``, ``SKIN_RENTAL``,
+        ``CURRENCY``, ...). The client's own crafting UI does the equivalent
+        bucketing client-side — there's no server-side summary endpoint.
+        """
+        wallet = {"blue": 0, "orange": 0, "mythic": 0, "keys": 0, "keyFragments": 0}
+        chests: list[dict] = []
+        shards: list[dict] = []
+        for item in loot or []:
+            if not isinstance(item, dict):
+                continue
+            t = item.get("type") or ""
+            name = item.get("lootName") or ""
+            count = int(item.get("count") or 0)
+            if count <= 0:
+                continue
+            if t == "CURRENCY":
+                if name == "CURRENCY_champion":
+                    wallet["blue"] = count
+                elif name == "CURRENCY_cosmetic":
+                    wallet["orange"] = count
+                elif name == "CURRENCY_mythic":
+                    wallet["mythic"] = count
+            elif name == "MATERIAL_key":
+                wallet["keys"] = count
+            elif name == "MATERIAL_key_fragment":
+                wallet["keyFragments"] = count
+            elif t == "CHEST":
+                chests.append({
+                    "lootId": item.get("lootId") or name,
+                    "lootName": name,
+                    "displayName": item.get("itemDesc") or name,
+                    "count": count,
+                })
+            elif t in ("CHAMPION_RENTAL", "SKIN_RENTAL"):
+                shards.append({
+                    "lootId": item.get("lootId") or "",
+                    "lootName": name,
+                    "type": t,
+                    "refId": item.get("refId") or item.get("storeItemId") or 0,
+                    "count": count,
+                    # `redundant` is LCU's own flag — true when the player already
+                    # owns the underlying permanent, so disenchanting is lossless.
+                    "redundant": bool(item.get("redundant")),
+                    "disenchantValue": int(item.get("disenchantValue") or 0),
+                    "displayName": item.get("itemDesc") or name,
+                })
+
+        redundant = [s for s in shards if s["redundant"]]
+        redundant_be = sum(s["disenchantValue"] * s["count"] for s in redundant)
+        return {
+            "wallet": wallet,
+            "chests": chests,
+            "shards": shards,
+            "redundantShards": redundant,
+            "redundantBe": redundant_be,
+            "totalChests": sum(c["count"] for c in chests),
+            "totalShards": sum(s["count"] for s in shards),
+        }
+
+    async def _tidy_hextech(self, *, open_chests: bool, disenchant: bool) -> None:
+        """Open every openable chest and/or disenchant every redundant shard.
+
+        Each recipe call is isolated in try/except — one bad recipe name
+        (e.g. an event chest whose ``_OPEN`` variant was renamed) won't stop
+        the rest of the batch. Errors go to debug logs only.
+        """
+        if not self._client.is_connected():
+            return
+
+        try:
+            loot = await api.player_loot(self._client)
+        except Exception as e:  # noqa: BLE001
+            self.errorOccurred.emit(str(e))
+            return
+
+        opened = 0
+        disenchanted = 0
+        be_gained = 0
+
+        if open_chests:
+            for item in loot or []:
+                if not isinstance(item, dict) or item.get("type") != "CHEST":
+                    continue
+                name = item.get("lootName") or ""
+                count = int(item.get("count") or 0)
+                if count <= 0 or not name:
+                    continue
+                # Convention: chest recipes are ``{lootName}_OPEN``. The input
+                # slot takes the lootName itself — chests are fungible so their
+                # lootId == lootName. Unknown recipes yield 404; we skip them.
+                recipe = f"{name}_OPEN"
+                try:
+                    await api.loot_craft(self._client, recipe, [name], repeat=count)
+                    opened += count
+                except Exception as e:  # noqa: BLE001
+                    log.debug("open %s skipped: %s", name, e)
+
+        if disenchant:
+            # Shards are disenchanted by lootId (unique per shard instance),
+            # through the generic ``CHAMPION_RENTAL_disenchant`` / ``SKIN_RENTAL_disenchant``
+            # recipes.
+            for item in loot or []:
+                if not isinstance(item, dict):
+                    continue
+                t = item.get("type")
+                if t not in ("CHAMPION_RENTAL", "SKIN_RENTAL"):
+                    continue
+                if not item.get("redundant"):
+                    continue
+                loot_id = item.get("lootId") or ""
+                count = int(item.get("count") or 0)
+                value = int(item.get("disenchantValue") or 0)
+                if count <= 0 or not loot_id:
+                    continue
+                recipe = f"{t}_disenchant"
+                try:
+                    await api.loot_craft(self._client, recipe, [loot_id], repeat=count)
+                    disenchanted += count
+                    be_gained += value * count
+                except Exception as e:  # noqa: BLE001
+                    log.debug("disenchant %s skipped: %s", loot_id, e)
+
+        # Always refresh so the summary counts reflect the new state.
+        try:
+            loot = await api.player_loot(self._client)
+            self._hextech = self._project_hextech(loot)
+            self.hextechChanged.emit()
+        except Exception as e:  # noqa: BLE001
+            log.debug("hextech post-refresh failed: %s", e)
+
+        parts: list[str] = []
+        if opened:
+            parts.append(f"开启 {opened} 个宝箱")
+        if disenchanted:
+            parts.append(f"分解 {disenchanted} 个碎片  +{be_gained} BE")
+        if parts:
+            self.notify.emit("赫克斯科技", " · ".join(parts))
+        else:
+            self.notify.emit("赫克斯科技", "无可整理的内容")
+
+    async def _watch_replay(self, game_id: int) -> None:
+        if not self._client.is_connected() or game_id <= 0:
+            return
+        # Pre-flight download is harmless if the .rofl is already cached —
+        # LCU returns an ack either way. Only the `watch` call is load-bearing.
+        try:
+            await api.replay_download(self._client, game_id)
+        except Exception as e:  # noqa: BLE001
+            log.debug("replay download pre-flight: %s", e)
+        try:
+            await api.replay_watch(self._client, game_id)
+            self.notify.emit("回放", f"正在启动对局 #{game_id} 的回放")
+        except Exception as e:  # noqa: BLE001
+            # Most failures here mean the replay isn't available (too old,
+            # different patch, custom game without recording).
+            self.errorOccurred.emit(f"回放不可用: {e}")
 
     async def _load_champ_select(self) -> None:
         if not self._client.is_connected():

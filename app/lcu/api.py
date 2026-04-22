@@ -348,6 +348,51 @@ def champ_select_local_cell(session: dict) -> int | None:
     return session.get("localPlayerCellId")
 
 
+# ---------- loot / Hextech ----------
+
+async def player_loot(c: LcuClient) -> list[dict]:
+    """All owned loot items: chests, shards, tokens, currencies, materials."""
+    return await c.get("/lol-loot/v1/player-loot") or []
+
+
+async def loot_craft(
+    c: LcuClient,
+    recipe_name: str,
+    loot_ids: list[str],
+    repeat: int = 1,
+) -> Any:
+    """Execute a loot recipe (open chest, disenchant shard, etc.).
+
+    ``loot_ids`` is the recipe's input slot — typically one entry, the
+    ``lootName`` (fungible items like chests) or ``lootId`` (unique shards).
+    ``repeat`` opens/disenchants the recipe multiple times in one call.
+    """
+    return await c.post(
+        f"/lol-loot/v1/recipes/{recipe_name}/craft",
+        params={"repeat": repeat},
+        json=loot_ids,
+    )
+
+
+# ---------- replays ----------
+
+async def replay_download(c: LcuClient, game_id: int) -> Any:
+    """Ask the client to fetch the .rofl for this game. Idempotent — a
+    404/409 on already-cached or unavailable replays is caller-handled."""
+    return await c.post(
+        f"/lol-replays/v1/rofls/{game_id}/download",
+        json={"componentId": str(game_id), "gameId": game_id},
+    )
+
+
+async def replay_watch(c: LcuClient, game_id: int) -> Any:
+    """Launch the replay. Requires the .rofl to be present locally."""
+    return await c.post(
+        f"/lol-replays/v1/rofls/{game_id}/watch",
+        json={"componentId": str(game_id), "gameId": game_id},
+    )
+
+
 # ---------- event URIs (for LcuEventStream subscribe prefixes) ----------
 
 EVENT_GAMEFLOW_PHASE = "/lol-gameflow/v1/gameflow-phase"

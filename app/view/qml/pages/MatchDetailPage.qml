@@ -148,6 +148,13 @@ FluScrollablePage {
 
                 Item { Layout.fillWidth: true }
 
+                FluButton {
+                    text: qsTr("重看回放")
+                    enabled: Lcu.connected && page.myGameId > 0
+                    visible: !isLoading && !hasError
+                    onClicked: Lcu.watchReplay(page.myGameId)
+                }
+
                 FluText {
                     text: blueStat.win ? qsTr("蓝方胜利") : qsTr("蓝方失败")
                     font: FluTextStyle.Title
