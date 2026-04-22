@@ -1,6 +1,6 @@
 # lol-copilot
 
-英雄联盟战绩助手（面向腾讯区），参考 Seraphine / frank / champ-r / rank-analysis。
+英雄联盟战绩助手，参考 Seraphine / frank / champ-r / rank-analysis。
 
 - UI：PySide6 + [FluentUI-QML](https://github.com/zhuzichu520/PySide6-FluentUI-QML)
 - 连接：LCU（League Client Update）本地 HTTPS + WebSocket
