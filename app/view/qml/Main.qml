@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import FluentUI
+import "components"
 
 FluWindow {
     id: window
@@ -67,7 +68,7 @@ FluWindow {
         }
     }
 
-    FluNavigationView {
+    AppNavigationView {
         id: nav
         anchors.fill: parent
         anchors.topMargin: 30

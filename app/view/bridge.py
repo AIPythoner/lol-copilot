@@ -358,7 +358,9 @@ class LcuBridge(QObject):
             if current_gid != gid or not current_has_detail:
                 self._match_detail = cached
                 self.matchDetailChanged.emit()
-            self._preload_match_detail_icons(cached, priority=True)
+                self._preload_match_detail_icons(cached, priority=True, clear_pending=True)
+            else:
+                self._preload_match_detail_icons(cached, priority=True, clear_pending=False)
         else:
             self._match_detail = {"loading": True, "gameId": gid}
             self.matchDetailChanged.emit()
@@ -746,7 +748,7 @@ class LcuBridge(QObject):
         self.matchDetailChanged.emit()
         try:
             projected = await self._get_projected_match_detail(game_id)
-            self._preload_match_detail_icons(projected, priority=True)
+            self._preload_match_detail_icons(projected, priority=True, clear_pending=True)
             self._match_detail = projected
             self.matchDetailChanged.emit()
         except Exception as e:  # noqa: BLE001
@@ -835,7 +837,13 @@ class LcuBridge(QObject):
             old = self._match_detail_order.pop(0)
             self._match_detail_cache.pop(old, None)
 
-    def _preload_match_detail_icons(self, detail: dict[str, Any], *, priority: bool = False) -> None:
+    def _preload_match_detail_icons(
+        self,
+        detail: dict[str, Any],
+        *,
+        priority: bool = False,
+        clear_pending: bool = False,
+    ) -> None:
         if self._image_provider is None or not hasattr(self._image_provider, "preload"):
             return
 
@@ -861,7 +869,7 @@ class LcuBridge(QObject):
                 add((self._augments_by_id.get(str(aid)) or {}).get("iconPath"))
 
         try:
-            self._image_provider.preload(paths, priority=priority, clear_pending=priority)
+            self._image_provider.preload(paths, priority=priority, clear_pending=clear_pending)
         except Exception as e:  # noqa: BLE001
             log.debug("match detail icon preload failed: %s", e)
 

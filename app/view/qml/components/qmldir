@@ -1,4 +1,5 @@
 module components
+AppNavigationView 1.0 AppNavigationView.qml
 ChampionIcon 1.0 ChampionIcon.qml
 ItemSlot 1.0 ItemSlot.qml
 ItemRow 1.0 ItemRow.qml
