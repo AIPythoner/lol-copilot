@@ -40,6 +40,7 @@ class AppTray(QObject):
         self,
         *,
         parent: Optional[QObject] = None,
+        icon: Optional[QIcon] = None,
         on_show: Callable[[], None],
         on_toggle_pause: Callable[[], None],
         is_paused: Callable[[], bool],
@@ -47,6 +48,7 @@ class AppTray(QObject):
     ) -> None:
         super().__init__(parent)
         self._on_show = on_show
+        self._icon = icon
         self._on_toggle_pause = on_toggle_pause
         self._is_paused = is_paused
         self._on_quit = on_quit
@@ -56,7 +58,8 @@ class AppTray(QObject):
     def install(self) -> bool:
         if not QSystemTrayIcon.isSystemTrayAvailable():
             return False
-        self._tray = QSystemTrayIcon(_default_icon())
+        icon = self._icon if self._icon is not None and not self._icon.isNull() else _default_icon()
+        self._tray = QSystemTrayIcon(icon)
         self._tray.setToolTip(APP_NAME)
 
         menu = QMenu()

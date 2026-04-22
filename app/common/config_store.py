@@ -54,11 +54,14 @@ class AppSettings:
         aa_raw = raw.get("auto_actions") or {}
         op_raw = raw.get("opgg") or {}
         wnd_raw = raw.get("window") or {}
+        dark_mode = raw.get("dark_mode", "dark")
+        if dark_mode not in ("dark", "light"):
+            dark_mode = "dark"
         return cls(
             auto_actions=AutoActionSettings(**{k: v for k, v in aa_raw.items() if k in AutoActionSettings.__dataclass_fields__}),
             opgg=OpggSettings(**{k: v for k, v in op_raw.items() if k in OpggSettings.__dataclass_fields__}),
             window=WindowGeom(**{k: v for k, v in wnd_raw.items() if k in WindowGeom.__dataclass_fields__}),
-            dark_mode=raw.get("dark_mode", "system"),
+            dark_mode=dark_mode,
         )
 
 
@@ -74,7 +77,10 @@ def load_settings() -> AppSettings:
         return AppSettings()
     try:
         raw = json.loads(p.read_text(encoding="utf-8"))
-        return AppSettings.from_dict(raw)
+        settings = AppSettings.from_dict(raw)
+        if raw.get("dark_mode") != settings.dark_mode:
+            save_settings(settings)
+        return settings
     except Exception as e:  # noqa: BLE001
         log.warning("failed to read settings %s: %s — using defaults", p, e)
         return AppSettings()

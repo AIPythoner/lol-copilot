@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import os
 import sys
 from pathlib import Path
@@ -15,21 +16,34 @@ from PySide6.QtWidgets import QApplication
 from app.common.config import APP_NAME
 from app.common.logger import get_logger, setup_logging
 from app.view.bridge import LcuBridge
+from app.view.icons import app_icon
 from app.view.image_provider import LcuImageProvider
 from app.view.tray import AppTray
 
 log = get_logger(__name__)
 
 
+def _set_windows_app_id() -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("lol-agent.desktop")
+    except Exception as e:  # noqa: BLE001
+        log.debug("failed to set Windows app id: %s", e)
+
+
 def run_gui() -> int:
     setup_logging()
     os.environ.setdefault("QT_QUICK_CONTROLS_STYLE", "Basic")
     QQuickWindow.setGraphicsApi(QSGRendererInterface.GraphicsApi.OpenGL)
+    _set_windows_app_id()
 
     QGuiApplication.setOrganizationName("lol-agent")
     QGuiApplication.setApplicationName(APP_NAME)
     # QApplication (not QGuiApplication) is required for QSystemTrayIcon.
     app = QApplication(sys.argv)
+    icon = app_icon()
+    app.setWindowIcon(icon)
     app.setQuitOnLastWindowClosed(False)
 
     # qasync integrates asyncio with Qt's event loop — required for our async LCU stack.
@@ -64,6 +78,10 @@ def run_gui() -> int:
         return 4
 
     window = engine.rootObjects()[0]
+    try:
+        window.setIcon(icon)
+    except Exception as e:  # noqa: BLE001
+        log.debug("failed to set QML window icon: %s", e)
 
     def _show_window() -> None:
         window.show()
@@ -72,6 +90,7 @@ def run_gui() -> int:
 
     tray = AppTray(
         parent=app,
+        icon=icon,
         on_show=_show_window,
         on_toggle_pause=bridge.toggleAutoPause,
         is_paused=bridge.autoPaused,

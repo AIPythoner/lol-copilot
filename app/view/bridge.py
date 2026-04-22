@@ -43,6 +43,7 @@ class LcuBridge(QObject):
     summonerChanged = Signal()
     phaseChanged = Signal()
     matchesChanged = Signal()
+    matchesLoadingChanged = Signal()
     rankedChanged = Signal()
     champSelectChanged = Signal()
     matchDetailChanged = Signal()
@@ -65,6 +66,7 @@ class LcuBridge(QObject):
         self._summoner: dict[str, Any] = {}
         self._phase: str = ""
         self._matches: list[dict[str, Any]] = []
+        self._matches_loading: bool = False
         self._ranked: dict[str, Any] = {}
         self._champ_select: dict[str, Any] = {}
         self._match_detail: dict[str, Any] = {}
@@ -149,6 +151,10 @@ class LcuBridge(QObject):
     @Property("QVariant", notify=matchesChanged)
     def matches(self) -> list:  # type: ignore[override]
         return self._matches
+
+    @Property(bool, notify=matchesLoadingChanged)
+    def matchesLoading(self) -> bool:  # type: ignore[override]
+        return self._matches_loading
 
     @Property("QVariant", notify=rankedChanged)
     def ranked(self) -> dict:  # type: ignore[override]
@@ -554,6 +560,11 @@ class LcuBridge(QObject):
             pick_priority=list(s.pick_priority),
         )
 
+    def _set_matches_loading(self, loading: bool) -> None:
+        if self._matches_loading != loading:
+            self._matches_loading = loading
+            self.matchesLoadingChanged.emit()
+
     async def _on_creds_change(self, creds: Optional[LcuCredentials]) -> None:
         await self._client.set_credentials(creds)
         await self._events.set_credentials(creds)
@@ -578,6 +589,7 @@ class LcuBridge(QObject):
             self._summoner = {}
             self._phase = ""
             self._matches = []
+            self._set_matches_loading(False)
             self._ranked = {}
             self._champ_select = {}
             for sig in (
@@ -654,7 +666,9 @@ class LcuBridge(QObject):
 
     async def _load_matches(self, count: int, puuid: str | None = None) -> None:
         if not self._client.is_connected():
+            self._set_matches_loading(False)
             return
+        self._set_matches_loading(True)
         try:
             if not puuid:
                 puuid = (self._summoner or {}).get("puuid") or ""
@@ -668,6 +682,8 @@ class LcuBridge(QObject):
         except Exception as e:  # noqa: BLE001
             log.exception("load matches failed: %s", e)
             self.errorOccurred.emit(str(e))
+        finally:
+            self._set_matches_loading(False)
 
     async def _load_ranked(self, puuid: str | None = None) -> None:
         if not self._client.is_connected():

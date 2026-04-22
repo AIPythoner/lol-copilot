@@ -40,7 +40,6 @@ FluWindow {
         // Restore persisted theme choice. First launch defaults to Dark.
         var mode = (Lcu.settings && Lcu.settings.dark_mode) || "dark"
         if (mode === "light") FluTheme.darkMode = FluThemeType.Light
-        else if (mode === "system") FluTheme.darkMode = FluThemeType.System
         else FluTheme.darkMode = FluThemeType.Dark
         FluTheme.animationEnabled = true
     }
@@ -69,7 +68,7 @@ FluWindow {
         anchors.topMargin: 30
         displayMode: FluNavigationViewType.Open
         pageMode: FluNavigationViewType.Stack
-        logo: "qrc:/qt-project.org/imports/FluentUI/Image/favicon.ico"
+        logo: Qt.resolvedUrl("../assets/app-icon-64.png")
         title: qsTr("LoL Agent")
 
         items: FluObject {

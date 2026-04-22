@@ -6,11 +6,21 @@ import "../components"
 import "../js/fmt.js" as Fmt
 
 FluScrollablePage {
+    id: page
     launchMode: FluPageType.SingleTask
     title: qsTr("最近战绩")
 
-    Component.onCompleted: if (Lcu.connected) Lcu.refreshMatches(20)
+    Component.onCompleted: _refreshIfNeeded()
+    onVisibleChanged: if (visible) _refreshIfNeeded()
 
+    Connections {
+        target: Lcu
+        function onConnectedChanged() {
+            if (Lcu.connected) _refreshIfNeeded()
+        }
+    }
+
+    property int requestedCount: 20
     property var filterOptions: [
         { label: qsTr("全部模式"), ids: [] },
         { label: qsTr("单双排"), ids: [420] },
@@ -38,18 +48,18 @@ FluScrollablePage {
             spacing: 8
             FluFilledButton {
                 text: qsTr("刷新 20 场")
-                onClicked: Lcu.refreshMatches(20)
-                enabled: Lcu.connected
+                onClicked: _refresh(20)
+                enabled: Lcu.connected && !Lcu.matchesLoading
             }
             FluButton {
                 text: qsTr("加载 50 场")
-                onClicked: Lcu.refreshMatches(50)
-                enabled: Lcu.connected
+                onClicked: _refresh(50)
+                enabled: Lcu.connected && !Lcu.matchesLoading
             }
             FluButton {
                 text: qsTr("加载 100 场")
-                onClicked: Lcu.refreshMatches(100)
-                enabled: Lcu.connected
+                onClicked: _refresh(100)
+                enabled: Lcu.connected && !Lcu.matchesLoading
             }
             Rectangle { width: 1; height: 24; color: FluColors.Grey120; opacity: 0.3 }
             FluText { text: qsTr("按模式筛选"); color: FluColors.Grey120; font.pixelSize: 12 }
@@ -76,8 +86,17 @@ FluScrollablePage {
             }
         }
 
+        ElegantLoader {
+            visible: Lcu.matchesLoading && filteredMatches.length === 0
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.max(360, page.height - 150)
+            text: qsTr("加载最近战绩…")
+            accent: "#d4a04a"
+            ringSize: 34
+        }
+
         FluText {
-            visible: filteredMatches.length === 0
+            visible: !Lcu.matchesLoading && filteredMatches.length === 0
             text: {
                 if (!Lcu.connected) return qsTr("请先连接客户端")
                 if ((Lcu.matches || []).length === 0) return qsTr("暂无数据")
@@ -85,6 +104,17 @@ FluScrollablePage {
             }
             Layout.alignment: Qt.AlignHCenter
             color: FluColors.Grey120
+        }
+    }
+
+    function _refresh(count) {
+        requestedCount = count
+        if (Lcu.connected) Lcu.refreshMatches(count)
+    }
+
+    function _refreshIfNeeded() {
+        if (Lcu.connected && !Lcu.matchesLoading && (Lcu.matches || []).length === 0) {
+            Lcu.refreshMatches(requestedCount)
         }
     }
 
