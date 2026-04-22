@@ -9,7 +9,10 @@ slots are verbs. All long work is async — slots just kick tasks off.
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any, Optional
+
+import httpx
 
 from PySide6.QtCore import (
     Property,
@@ -41,6 +44,11 @@ MATCH_DETAIL_PRELOAD_COUNT = 10
 MATCH_DETAIL_PRELOAD_CONCURRENCY = 3
 MATCH_DETAIL_CACHE_LIMIT = 64
 
+AI_SYSTEM_PROMPT = (
+    "你是一个 LOL 游戏分析师，擅长分析玩家战绩和给出游戏建议。"
+    "请用简洁、专业、直接的中文回复。所有结论都必须绑定数据证据，避免空泛。"
+)
+
 
 class LcuBridge(QObject):
     connectedChanged = Signal()
@@ -64,6 +72,14 @@ class LcuBridge(QObject):
     errorOccurred = Signal(str)
     notify = Signal(str, str)  # title, body
     navigationRequested = Signal(str)  # relative qml path for pages/… nav.push
+    # AI match analysis stream: one session at a time.
+    # started(gameId, mode) — fires when a stream begins (or a cache hit replays)
+    # chunk(text) — append the delta to the on-screen buffer
+    # done() / error(text) — terminal; UI flips back to idle
+    aiAnalysisStarted = Signal(str, str)
+    aiAnalysisChunk = Signal(str)
+    aiAnalysisDone = Signal()
+    aiAnalysisError = Signal(str)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -96,6 +112,11 @@ class LcuBridge(QObject):
         self._aram_buffs: list[dict[str, Any]] = []
         self._in_game: dict[str, Any] = {}
         self._hextech: dict[str, Any] = {}
+        # Session-scoped AI analysis cache, keyed by (gameId, mode, puuid).
+        # Matches rank-analysis' sessionStorage strategy — same match replays
+        # instantly without re-billing tokens.
+        self._ai_cache: dict[tuple[int, str, str], str] = {}
+        self._ai_task: Optional[asyncio.Task] = None
 
         self._settings: AppSettings = load_settings()
         self._client = LcuClient()
@@ -551,6 +572,41 @@ class LcuBridge(QObject):
     @Slot(float)
     def watchReplay(self, game_id: float) -> None:
         self._spawn(self._watch_replay(int(game_id)), name="bridge-replay")
+
+    # ----- QML-callable slots: AI match analysis -----
+
+    @Slot(float, str, str)
+    def analyzeMatch(self, game_id: float, mode: str, target_puuid: str) -> None:
+        """Start (or replay from cache) an AI analysis of ``game_id``.
+
+        ``mode`` is ``overview`` (full-team breakdown) or ``player`` (focus
+        on ``target_puuid``). If another analysis is already streaming we
+        cancel it first — the dialog can only host one session at a time.
+        """
+        gid = int(game_id)
+        self._cancel_ai_task()
+        self._ai_task = self._spawn(
+            self._analyze_match(gid, mode or "overview", (target_puuid or "").strip()),
+            name="bridge-ai-analyze",
+        )
+
+    @Slot()
+    def cancelAnalysis(self) -> None:
+        self._cancel_ai_task()
+
+    @Slot("QVariant")
+    def updateAiConfig(self, raw: Any) -> None:
+        """raw: {enabled, base_url, api_key, model}"""
+        if not isinstance(raw, dict):
+            return
+        ai = self._settings.ai
+        if "enabled" in raw:
+            ai.enabled = bool(raw["enabled"])
+        for k in ("base_url", "api_key", "model"):
+            if k in raw and isinstance(raw[k], str):
+                setattr(ai, k, raw[k].strip())
+        save_settings(self._settings)
+        self.settingsChanged.emit()
 
     # ----- QML-callable slots: settings -----
 
@@ -1180,6 +1236,384 @@ class LcuBridge(QObject):
             self.notify.emit("赫克斯科技", " · ".join(parts))
         else:
             self.notify.emit("赫克斯科技", "无可整理的内容")
+
+    # ----- AI match analysis -----
+
+    def _cancel_ai_task(self) -> None:
+        task = self._ai_task
+        self._ai_task = None
+        if task is not None and not task.done():
+            task.cancel()
+
+    async def _analyze_match(self, game_id: int, mode: str, target_puuid: str) -> None:
+        ai = self._settings.ai
+        if not ai.enabled or not ai.api_key or not ai.base_url or not ai.model:
+            self.aiAnalysisError.emit("请先在“设置”里启用 AI 并填写 base_url / api_key / model")
+            return
+        if game_id <= 0:
+            self.aiAnalysisError.emit("无效的对局 ID")
+            return
+        mode = mode if mode in ("overview", "player") else "overview"
+        if mode == "player" and not target_puuid:
+            self.aiAnalysisError.emit("单人复盘需要指定玩家")
+            return
+
+        cache_key = (game_id, mode, target_puuid if mode == "player" else "")
+        cached = self._ai_cache.get(cache_key)
+
+        self.aiAnalysisStarted.emit(str(game_id), mode)
+        if cached is not None:
+            # Replay previously-streamed content as a single chunk. Cheaper
+            # than re-billing tokens and matches how rank-analysis' session
+            # cache behaves.
+            self.aiAnalysisChunk.emit(cached)
+            self.aiAnalysisDone.emit()
+            return
+
+        try:
+            detail = await self._get_projected_match_detail(game_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            self.aiAnalysisError.emit(f"加载对局失败: {e}")
+            return
+
+        snapshot = self._build_match_snapshot(detail, target_puuid)
+        if mode == "player":
+            target = next(
+                (p for p in snapshot["players"] if p.get("puuid") == target_puuid),
+                None,
+            )
+            if target is None:
+                self.aiAnalysisError.emit("该玩家不在这场对局中")
+                return
+            user_prompt = self._prompt_match_player(snapshot, target)
+        else:
+            user_prompt = self._prompt_match_overview(snapshot)
+
+        try:
+            content = await self._stream_openai_compat(
+                system_prompt=AI_SYSTEM_PROMPT,
+                user_prompt=user_prompt,
+                on_chunk=self.aiAnalysisChunk.emit,
+            )
+            self._ai_cache[cache_key] = content
+            self.aiAnalysisDone.emit()
+        except asyncio.CancelledError:
+            # User closed the dialog or started a new analysis — swallow,
+            # don't emit done/error; the UI has already reset.
+            raise
+        except Exception as e:  # noqa: BLE001
+            log.warning("AI analysis failed: %s", e)
+            self.aiAnalysisError.emit(f"AI 请求失败: {e}")
+
+    async def _stream_openai_compat(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        on_chunk,
+    ) -> str:
+        """Stream an OpenAI-compatible ``chat/completions`` response.
+
+        Works against OpenAI, DeepSeek, OpenRouter, One-API, local vLLM /
+        LM Studio — anything that honours the reference SSE format. Returns
+        the aggregated assistant content once the stream terminates so the
+        caller can cache it.
+        """
+        ai = self._settings.ai
+        url = ai.base_url.rstrip("/") + "/chat/completions"
+        body = {
+            "model": ai.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "stream": True,
+            "temperature": 0.3,
+        }
+        headers = {
+            "Authorization": f"Bearer {ai.api_key}",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+        }
+
+        buffer: list[str] = []
+        # Long timeout on read/stream — completions over slow models can take
+        # a while; short connect timeout catches typos in base_url fast.
+        timeout = httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream("POST", url, headers=headers, json=body) as resp:
+                if resp.status_code != 200:
+                    err_text = await resp.aread()
+                    try:
+                        err_json = json.loads(err_text)
+                        msg = (err_json.get("error") or {}).get("message") or err_text.decode("utf-8", "replace")
+                    except Exception:  # noqa: BLE001
+                        msg = err_text.decode("utf-8", "replace") if err_text else f"HTTP {resp.status_code}"
+                    raise RuntimeError(f"{resp.status_code}: {msg}")
+                async for line in resp.aiter_lines():
+                    if not line or not line.startswith("data:"):
+                        continue
+                    payload = line[5:].strip()
+                    if payload == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+                    try:
+                        delta = data["choices"][0].get("delta") or {}
+                    except (KeyError, IndexError, TypeError):
+                        continue
+                    piece = delta.get("content") or ""
+                    if piece:
+                        buffer.append(piece)
+                        on_chunk(piece)
+        return "".join(buffer)
+
+    def _build_match_snapshot(self, detail: dict, target_puuid: str = "") -> dict:
+        """Dense, LLM-friendly projection of a match. Adds the shares /
+        participation percentages that a model can't reliably compute.
+        """
+        participants = detail.get("participants") or []
+        team_stats = detail.get("teamStats") or []
+        my_puuid = (self._summoner or {}).get("puuid") or ""
+
+        team_totals: dict[int, dict[str, int]] = {}
+        for p in participants:
+            tid = int(p.get("teamId") or 0)
+            agg = team_totals.setdefault(tid, {"damage": 0, "taken": 0, "gold": 0, "kills": 0})
+            agg["damage"] += int(p.get("damage") or 0)
+            agg["taken"] += int(p.get("damageTaken") or 0)
+            agg["gold"] += int(p.get("gold") or 0)
+            agg["kills"] += int(p.get("kills") or 0)
+
+        def pct(v: int, total: int) -> float:
+            if total <= 0:
+                return 0.0
+            return round(v / total * 100, 1)
+
+        players = []
+        for p in participants:
+            tid = int(p.get("teamId") or 0)
+            totals = team_totals.get(tid) or {"damage": 0, "taken": 0, "gold": 0, "kills": 0}
+            cid = str(p.get("championId") or 0)
+            champion_name = (self._champions_by_id.get(cid) or {}).get("name") or f"champion_{cid}"
+            puuid = p.get("puuid") or ""
+            kills = int(p.get("kills") or 0)
+            deaths = int(p.get("deaths") or 0)
+            assists = int(p.get("assists") or 0)
+            players.append({
+                "participantId": p.get("participantId"),
+                "teamId": tid,
+                "name": p.get("summonerName") or "",
+                "puuid": puuid,
+                "champion": champion_name,
+                "isMe": bool(my_puuid) and puuid == my_puuid,
+                "isFocus": bool(target_puuid) and puuid == target_puuid,
+                "win": bool(p.get("win")),
+                "kda": round((kills + assists) / max(1, deaths), 2),
+                "kills": kills,
+                "deaths": deaths,
+                "assists": assists,
+                "gold": int(p.get("gold") or 0),
+                "cs": int(p.get("cs") or 0),
+                "damage": int(p.get("damage") or 0),
+                "taken": int(p.get("damageTaken") or 0),
+                "damageShare": pct(int(p.get("damage") or 0), totals["damage"]),
+                "damageTakenShare": pct(int(p.get("damageTaken") or 0), totals["taken"]),
+                "goldShare": pct(int(p.get("gold") or 0), totals["gold"]),
+                "killParticipation": pct(kills + assists, max(1, totals["kills"])),
+                "vision": int(p.get("vision") or 0),
+                "wardsPlaced": int(p.get("wardsPlaced") or 0),
+                "wardsKilled": int(p.get("wardsKilled") or 0),
+                "perks": {
+                    "primary": p.get("primaryStyleId") or 0,
+                    "subStyle": p.get("subStyleId") or 0,
+                },
+                "augments": [a for a in (p.get("augments") or []) if a and a > 0],
+                "position": p.get("position") or "",
+                "score": p.get("score") or 0,
+                "tags": list(p.get("tags") or []),
+            })
+
+        teams: list[dict] = []
+        for t in team_stats:
+            tid = int(t.get("teamId") or 0)
+            team_players = [p for p in players if p["teamId"] == tid]
+            teams.append({
+                "teamId": tid,
+                "result": "胜方" if t.get("win") else "败方",
+                "totalKills": sum(p["kills"] for p in team_players),
+                "totalDeaths": sum(p["deaths"] for p in team_players),
+                "totalAssists": sum(p["assists"] for p in team_players),
+                "totalDamage": sum(p["damage"] for p in team_players),
+                "totalGold": sum(p["gold"] for p in team_players),
+                "towerKills": int(t.get("towerKills") or 0),
+                "dragonKills": int(t.get("dragonKills") or 0),
+                "baronKills": int(t.get("baronKills") or 0),
+                "firstBlood": bool(t.get("firstBlood")),
+            })
+
+        queue_id = detail.get("queueId")
+        queue_entry = self._queues_by_id.get(str(queue_id)) or {}
+        return {
+            "gameId": detail.get("gameId"),
+            "queueId": queue_id,
+            "queueName": queue_entry.get("name") or detail.get("gameMode") or "",
+            "gameMode": detail.get("gameMode"),
+            "durationSeconds": int(detail.get("gameDuration") or 0),
+            "augmentMode": bool(detail.get("usesAugments")),
+            "players": players,
+            "teams": teams,
+        }
+
+    @staticmethod
+    def _prompt_match_overview(snapshot: dict) -> str:
+        duration = int(snapshot.get("durationSeconds") or 0)
+        mins = duration // 60
+        secs = duration % 60
+        queue_name = snapshot.get("queueName", "")
+        queue_id = snapshot.get("queueId", "")
+        game_mode = snapshot.get("gameMode", "")
+        augment = "海克斯/强化局，优先看强化搭配" if snapshot.get("augmentMode") else "常规局，优先看符文与基础数据"
+        snap_json = json.dumps(snapshot, ensure_ascii=False, indent=2)
+        return f"""你是 LOL 单场复盘分析师。请只基于下面这场比赛的数据做结论，不要编造对线细节、团战时间点或装备效果。
+
+【任务目标】
+请你判断这场比赛里：
+1. 谁最尽力
+2. 谁最犯罪
+3. 谁是被对位或被局势打爆的
+4. 谁属于被队友连累
+5. 胜负的核心原因是什么
+
+【标签定义】
+- 缚地灵：整场几乎不参与团战、只待在自己线上/野区刷资源；特征是低参团率、低助攻、低伤害占比，但补刀/经济未必低。
+
+【硬性要求】
+- 每个判断都必须引用至少 2 个具体数据证据（KDA、伤害占比、承伤占比、经济占比、参团率、推塔、死亡数）。
+- 不要因为输了就默认某个人犯罪，也不要因为赢了就默认某个人尽力。
+- “被连累”只给在败方里数据明显完成职责、但团队整体明显失衡的人。
+- “被爆”优先看高死亡、低经济占比、低输出占比、低参团，或同队里明显拖后腿。
+- 允许结论为“无人明显犯罪”或“多人都尽力”。
+- 语气直接，但不要人身攻击。
+
+【负面标签申辩机制】
+判定某玩家为负面标签时，必须同时考虑以下申辩理由：
+1. 位置因素：下路双人路天然容易被针对、上路长线容易被军训、打野被反野可能是因线上没线权。
+2. 补位因素：若该玩家明显在玩非主玩位置，失误率高应给予理解。
+3. 被针对因素：若死亡集中在前期、敌方打野/中单击杀中该玩家占比过高，说明被重点照顾。
+4. 团队因素：若某路队友崩盘导致自己被连带。
+5. 英雄克制：若存在明显的英雄劣势对线（短手打长手），KDA 差应部分归因于 BP。
+
+【申辩权重】
+- 主玩位置+非明显被针对：负面标签有效
+- 补位/被明显针对/团队连累：降级为“情有可原”或改判为“被连累”
+- 无法判断时优先选择较温和的表述
+
+【对局信息】
+模式：{queue_name}
+队列ID：{queue_id}
+游戏模式：{game_mode}
+时长：{mins}分{secs}秒
+构筑类型：{augment}
+
+【全场数据快照】
+{snap_json}
+
+【输出格式】
+请严格按这个结构输出：
+
+## 总体结论
+- 先用 2-3 句话总结胜负原因。
+
+## 尽力榜
+- 只列 1-2 人。
+- 每人一行：名字 + 判定 + 证据。
+
+## 犯罪榜
+- 只列 1-2 人。
+- 如果没有明显犯罪，明确写“本局无人明显犯罪”。
+
+## 被爆点评
+- 点出 1-2 个最明显的崩点。
+
+## 被连累点评
+- 如果有人属于被连累，说明他做到了什么、却被哪些队友问题拖垮。
+
+## 关键证据
+- 用 3-5 条 bullet 收尾，每条都带数字。"""
+
+    @staticmethod
+    def _prompt_match_player(snapshot: dict, target: dict) -> str:
+        duration = int(snapshot.get("durationSeconds") or 0)
+        mins = duration // 60
+        secs = duration % 60
+        queue_name = snapshot.get("queueName", "")
+        augment = "海克斯/强化局" if snapshot.get("augmentMode") else "常规局"
+        same_team = [p for p in snapshot["players"] if p["teamId"] == target["teamId"]]
+        enemy = [p for p in snapshot["players"] if p["teamId"] != target["teamId"]]
+        target_json = json.dumps(target, ensure_ascii=False, indent=2)
+        same_json = json.dumps(same_team, ensure_ascii=False, indent=2)
+        enemy_json = json.dumps(enemy, ensure_ascii=False, indent=2)
+        return f"""你是 LOL 单人复盘分析师。请围绕指定玩家，判断他这局到底属于“尽力 / 犯罪 / 被爆 / 被连累 / 缚地灵 / 正常发挥”中的哪一类。
+
+【标签定义】
+- 缚地灵：整场几乎不参与团战、只待在自己线上/野区刷资源；特征是低参团率（低于团队平均 15% 以上）、低助攻、低伤害占比，但补刀/经济未必低。常见于“单机”型上单或刷子型打野。
+
+【硬性要求】
+- 必须先给出唯一主标签。
+- 所有结论必须基于数据，至少引用 3 个具体指标。
+- 要区分“自己打得差”和“队友整体拖垮”这两种情况。
+- 如果是海克斯/强化模式，请结合强化数量和构筑方向判断是否成型。
+- 不要空泛鼓励，不要写成攻略。
+
+【负面标签申辩机制】
+判定为“犯罪”“被爆”或“缚地灵”时，必须评估以下申辩：
+1. 位置因素（下路易被 4 包 2、上路长线军训、打野被反野）。
+2. 补位因素（非主玩位置应给予折扣）。
+3. 被针对因素（死亡集中前期、敌方击杀占比集中在该玩家）。
+4. 团队连累（某路队友崩盘导致被连带）。
+5. 英雄克制（短手打长手、阵容缺保护/开团）。
+
+【申辩判定】
+- 满足 2 项以上申辩：改判为“被连累”或“情有可原的正常发挥”。
+- 满足 1 项：负面标签保留，但备注申辩原因。
+- 不满足：负面标签成立，给出直接批评。
+
+【对局信息】
+模式：{queue_name}
+时长：{mins}分{secs}秒
+构筑类型：{augment}
+
+【目标玩家】
+{target_json}
+
+【同队玩家】
+{same_json}
+
+【敌方玩家】
+{enemy_json}
+
+【输出格式】
+请严格按这个结构输出：
+
+## 玩家判定
+- 先写：名字 + 主标签（负面标签且通过申辩时，写“XXX（情有可原）”）。
+
+## 为什么这么判
+- 用 3-4 条 bullet 解释，必须带数字。
+
+## 申辩评估（仅负面标签需要）
+- 逐条评估 5 类申辩理由，写明：是否成立 + 简要依据。
+
+## 他是怎么输/赢的
+- 说明是自己打出来的、被针对的、还是被队友带飞/拖累。若有申辩理由成立，重点说明。
+
+## 一句话锐评
+- 允许直接，但不要辱骂。"""
 
     async def _watch_replay(self, game_id: int) -> None:
         if not self._client.is_connected() or game_id <= 0:

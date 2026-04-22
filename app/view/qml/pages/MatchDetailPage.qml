@@ -148,6 +148,13 @@ FluScrollablePage {
 
                 Item { Layout.fillWidth: true }
 
+                FluFilledButton {
+                    text: qsTr("AI 复盘")
+                    enabled: page.myGameId > 0
+                    visible: !isLoading && !hasError
+                    onClicked: aiDialog.openOverview()
+                }
+
                 FluButton {
                     text: qsTr("重看回放")
                     enabled: Lcu.connected && page.myGameId > 0
@@ -459,6 +466,139 @@ FluScrollablePage {
                     anchors.centerIn: parent
                     score: participant.score || 0
                     tags: participant.tags || []
+                }
+            }
+        }
+    }
+
+    // ===== AI analysis dialog =====
+    // Streamed markdown from the bridge's OpenAI-compatible client.
+    // Cancelling on close prevents a request that completes after the user
+    // dismissed the dialog from stealing cache-slot for a game they didn't
+    // want analyzed.
+    FluPopup {
+        id: aiDialog
+        width: Math.min(780, page.width - 60)
+        height: Math.min(680, page.height)
+        closePolicy: Popup.CloseOnEscape
+
+        property string aiContent: ""
+        property string errorText: ""
+        property bool aiLoading: false
+        property string aiMode: "overview"
+
+        function openOverview() {
+            aiMode = "overview"
+            aiContent = ""
+            errorText = ""
+            aiLoading = true
+            open()
+            Lcu.analyzeMatch(page.myGameId, "overview", "")
+        }
+
+        onClosed: {
+            Lcu.cancelAnalysis()
+            aiContent = ""
+            errorText = ""
+            aiLoading = false
+        }
+
+        Connections {
+            target: Lcu
+            enabled: aiDialog.opened
+            function onAiAnalysisStarted(gid, mode) {
+                aiDialog.aiContent = ""
+                aiDialog.errorText = ""
+                aiDialog.aiLoading = true
+            }
+            function onAiAnalysisChunk(chunk) {
+                aiDialog.aiContent += chunk
+            }
+            function onAiAnalysisDone() {
+                aiDialog.aiLoading = false
+            }
+            function onAiAnalysisError(msg) {
+                aiDialog.aiLoading = false
+                aiDialog.errorText = msg
+            }
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 18
+            spacing: 10
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                FluText { text: qsTr("AI 复盘"); font: FluTextStyle.Title }
+                FluText {
+                    text: aiDialog.aiLoading ? qsTr("分析中…") : (aiDialog.errorText.length > 0 ? qsTr("失败") : qsTr("完成"))
+                    color: aiDialog.errorText.length > 0 ? "#c64343" : FluColors.Grey120
+                    font.pixelSize: 11
+                }
+                Item { Layout.fillWidth: true }
+                FluIconButton {
+                    iconSource: FluentIcons.ChromeClose
+                    iconSize: 12
+                    onClicked: aiDialog.close()
+                }
+            }
+
+            FluText {
+                visible: aiDialog.errorText.length > 0
+                text: aiDialog.errorText
+                color: "#c64343"
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+
+            Flickable {
+                id: aiFlick
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                contentHeight: aiText.implicitHeight + 8
+                contentWidth: width
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.vertical: FluScrollBar {}
+                // Auto-scroll to bottom while streaming so the user sees
+                // the latest chunk without having to drag.
+                onContentHeightChanged: if (aiDialog.aiLoading) contentY = Math.max(0, contentHeight - height)
+
+                FluText {
+                    id: aiText
+                    width: parent.width - 8
+                    text: aiDialog.aiContent.length > 0
+                        ? aiDialog.aiContent
+                        : (aiDialog.aiLoading ? qsTr("正在等待 AI 回复…") : "")
+                    textFormat: Text.MarkdownText
+                    wrapMode: Text.WordWrap
+                    color: aiDialog.aiContent.length > 0 ? undefined : FluColors.Grey120
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                FluText {
+                    text: qsTr("数据仅来自本场战绩，不会发送你的账号信息")
+                    color: FluColors.Grey120
+                    font.pixelSize: 10
+                }
+                Item { Layout.fillWidth: true }
+                FluButton {
+                    text: qsTr("重新生成")
+                    enabled: !aiDialog.aiLoading && page.myGameId > 0
+                    onClicked: {
+                        aiDialog.aiContent = ""
+                        aiDialog.errorText = ""
+                        aiDialog.aiLoading = true
+                        // Bypass cache by clearing on the Python side is not
+                        // exposed — instead re-fire the request; hitting
+                        // cache gives instant redisplay, which is the
+                        // usual desired semantics.
+                        Lcu.analyzeMatch(page.myGameId, aiDialog.aiMode, "")
+                    }
                 }
             }
         }

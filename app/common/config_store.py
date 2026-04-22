@@ -41,10 +41,26 @@ class WindowGeom:
 
 
 @dataclass
+class AiSettings:
+    """OpenAI-compatible endpoint config for match AI analysis.
+
+    Defaults point at DeepSeek because their pricing (~$0.14 / 1M input
+    tokens) makes running this per-match affordable. Any OpenAI-compatible
+    gateway works — OpenRouter, One-API, or self-hosted vLLM / LM Studio —
+    so we keep the base_url and model fully user-editable.
+    """
+    enabled: bool = False
+    base_url: str = "https://api.deepseek.com/v1"
+    api_key: str = ""
+    model: str = "deepseek-chat"
+
+
+@dataclass
 class AppSettings:
     auto_actions: AutoActionSettings = field(default_factory=AutoActionSettings)
     opgg: OpggSettings = field(default_factory=OpggSettings)
     window: WindowGeom = field(default_factory=WindowGeom)
+    ai: AiSettings = field(default_factory=AiSettings)
     dark_mode: str = "dark"  # "system" / "light" / "dark"
 
     def to_dict(self) -> dict[str, Any]:
@@ -55,6 +71,7 @@ class AppSettings:
         aa_raw = raw.get("auto_actions") or {}
         op_raw = raw.get("opgg") or {}
         wnd_raw = raw.get("window") or {}
+        ai_raw = raw.get("ai") or {}
         try:
             saved_height = int(wnd_raw.get("height") or 0)
         except (TypeError, ValueError):
@@ -72,6 +89,7 @@ class AppSettings:
             auto_actions=AutoActionSettings(**{k: v for k, v in aa_raw.items() if k in AutoActionSettings.__dataclass_fields__}),
             opgg=OpggSettings(**{k: v for k, v in op_raw.items() if k in OpggSettings.__dataclass_fields__}),
             window=WindowGeom(**{k: v for k, v in wnd_raw.items() if k in WindowGeom.__dataclass_fields__}),
+            ai=AiSettings(**{k: v for k, v in ai_raw.items() if k in AiSettings.__dataclass_fields__}),
             dark_mode=dark_mode,
         )
 
