@@ -952,29 +952,40 @@ class LcuBridge(QObject):
         if self._image_provider is None or not hasattr(self._image_provider, "preload"):
             return
 
-        paths: set[str] = set()
+        core_paths: list[str] = []
+        item_paths: list[str] = []
+        seen: set[str] = set()
+        uses_augments = detail.get("usesAugments") is True
 
-        def add(path: str | None) -> None:
-            if path and path.startswith("/lol-game-data/assets/"):
-                paths.add(path)
+        def add(bucket: list[str], path: str | None) -> None:
+            if not path or not path.startswith("/lol-game-data/assets/") or path in seen:
+                return
+            seen.add(path)
+            bucket.append(path)
 
         for p in detail.get("participants") or []:
             if not isinstance(p, dict):
                 continue
             champion = self._champions_by_id.get(str(p.get("championId") or 0))
-            add((champion or {}).get("squarePortraitPath") or (champion or {}).get("iconPath"))
-            for iid in p.get("items") or []:
-                add((self._items_by_id.get(str(iid)) or {}).get("iconPath"))
+            add(core_paths, (champion or {}).get("squarePortraitPath") or (champion or {}).get("iconPath"))
             for sid in (p.get("spell1Id"), p.get("spell2Id")):
-                add((self._spells_by_id.get(str(sid)) or {}).get("iconPath"))
-            for pid in p.get("perks") or []:
-                add((self._perks_by_id.get(str(pid)) or {}).get("iconPath"))
-            add((self._perk_styles_by_id.get(str(p.get("subStyleId") or 0)) or {}).get("iconPath"))
-            for aid in p.get("augments") or []:
-                add((self._augments_by_id.get(str(aid)) or {}).get("iconPath"))
+                add(core_paths, (self._spells_by_id.get(str(sid)) or {}).get("iconPath"))
+            if uses_augments:
+                for aid in p.get("augments") or []:
+                    add(core_paths, (self._augments_by_id.get(str(aid)) or {}).get("iconPath"))
+            else:
+                perks = p.get("perks") or []
+                add(core_paths, (self._perks_by_id.get(str(perks[0] if perks else 0)) or {}).get("iconPath"))
+                add(core_paths, (self._perk_styles_by_id.get(str(p.get("subStyleId") or 0)) or {}).get("iconPath"))
+            for iid in p.get("items") or []:
+                add(item_paths, (self._items_by_id.get(str(iid)) or {}).get("iconPath"))
 
         try:
-            self._image_provider.preload(paths, priority=priority, clear_pending=clear_pending)
+            self._image_provider.preload(
+                core_paths + item_paths,
+                priority=priority,
+                clear_pending=clear_pending,
+            )
         except Exception as e:  # noqa: BLE001
             log.debug("match detail icon preload failed: %s", e)
 

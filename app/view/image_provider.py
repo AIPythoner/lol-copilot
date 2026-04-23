@@ -22,7 +22,9 @@ from app.common.logger import get_logger
 
 log = get_logger(__name__)
 
-PRELOAD_WORKER_COUNT = 3
+# Match detail pages can enqueue 100+ localhost asset fetches at once. Keep a
+# slightly wider pool so visible icons don't trickle in a few at a time.
+PRELOAD_WORKER_COUNT = 8
 
 
 class LcuImageProvider(QQuickImageProvider):
@@ -119,7 +121,14 @@ class LcuImageProvider(QQuickImageProvider):
         priority: bool = False,
         clear_pending: bool = False,
     ) -> None:
-        keys = sorted({p.lstrip("/") for p in paths if p})
+        keys: list[str] = []
+        seen: set[str] = set()
+        for path in paths:
+            key = path.lstrip("/") if path else ""
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            keys.append(key)
         if not keys:
             return
 

@@ -278,7 +278,7 @@ FluScrollablePage {
 
         Timer {
             id: iconDelay
-            interval: 70 + row.revealOrder * 24
+            interval: 12 + row.revealOrder * 8
             repeat: false
             onTriggered: row.iconsReady = true
         }
