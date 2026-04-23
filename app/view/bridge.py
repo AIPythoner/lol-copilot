@@ -42,8 +42,10 @@ from app.services import aram_buff, assets, opgg
 log = get_logger(__name__)
 
 MATCH_DETAIL_PRELOAD_COUNT = 10
-MATCH_DETAIL_PRELOAD_CONCURRENCY = 3
+MATCH_DETAIL_PRELOAD_CONCURRENCY = 4
+MATCH_DETAIL_ICON_PRELOAD_COUNT = 4
 MATCH_DETAIL_CACHE_LIMIT = 64
+MATCH_DETAIL_MIN_SKELETON_MS = 180
 
 AI_SYSTEM_PROMPT = (
     "你是一个 LOL 游戏分析师，擅长分析玩家战绩和给出游戏建议。"
@@ -106,6 +108,8 @@ class LcuBridge(QObject):
         self._match_detail_order: list[int] = []
         self._match_detail_inflight: dict[int, asyncio.Task] = {}
         self._match_detail_preload_seq: int = 0
+        self._match_detail_loading_started_at: float = 0.0
+        self._match_detail_pending_game_id: int = 0
         self._winrate_sent_game_ids: set[int] = set()
         self._champion_pool: list[dict[str, Any]] = []
         self._teammates: list[dict[str, Any]] = []
@@ -380,18 +384,14 @@ class LcuBridge(QObject):
         """
         gid = int(game_id)
         cached = self._match_detail_cache.get(gid)
+        self._set_match_detail_loading(gid)
         if cached is not None:
-            current_gid = int((self._match_detail or {}).get("gameId") or -1)
-            current_has_detail = bool((self._match_detail or {}).get("participants"))
-            if current_gid != gid or not current_has_detail:
-                self._match_detail = cached
-                self.matchDetailChanged.emit()
-                self._preload_match_detail_icons(cached, priority=True, clear_pending=True)
-            else:
-                self._preload_match_detail_icons(cached, priority=True, clear_pending=False)
+            self._preload_match_detail_icons(cached, priority=True, clear_pending=True)
+            self._spawn(
+                self._publish_match_detail(cached),
+                name=f"bridge-match-detail-show-{gid}",
+            )
         else:
-            self._match_detail = {"loading": True, "gameId": gid}
-            self.matchDetailChanged.emit()
             self._spawn(self._load_match_detail(gid))
         self.navigationRequested.emit("pages/MatchDetailPage.qml")
 
@@ -846,21 +846,48 @@ class LcuBridge(QObject):
         cached = self._match_detail_cache.get(game_id)
         if cached is not None:
             self._preload_match_detail_icons(cached, priority=True)
-            self._match_detail = cached
-            self.matchDetailChanged.emit()
+            await self._publish_match_detail(cached)
             return
-        self._match_detail = {"loading": True, "gameId": game_id}
-        self.matchDetailChanged.emit()
+        current_gid = int((self._match_detail or {}).get("gameId") or -1)
+        if current_gid != game_id or not bool((self._match_detail or {}).get("loading")):
+            self._set_match_detail_loading(game_id)
         try:
             projected = await self._get_projected_match_detail(game_id)
             self._preload_match_detail_icons(projected, priority=True, clear_pending=True)
-            self._match_detail = projected
-            self.matchDetailChanged.emit()
+            await self._publish_match_detail(projected)
         except Exception as e:  # noqa: BLE001
             log.exception("match detail failed: %s", e)
-            self._match_detail = {"error": str(e), "gameId": game_id}
-            self.matchDetailChanged.emit()
+            await self._publish_match_detail({"error": str(e), "gameId": game_id})
             self.errorOccurred.emit(str(e))
+
+    def _set_match_detail_loading(self, game_id: int) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.get_event_loop()
+        self._match_detail_loading_started_at = loop.time()
+        self._match_detail_pending_game_id = game_id
+        self._match_detail = {"loading": True, "gameId": game_id}
+        self.matchDetailChanged.emit()
+
+    async def _publish_match_detail(self, payload: dict[str, Any]) -> None:
+        gid = int(payload.get("gameId") or 0)
+        if gid > 0 and self._match_detail_pending_game_id == gid:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = asyncio.get_event_loop()
+            elapsed = loop.time() - self._match_detail_loading_started_at
+            remaining = MATCH_DETAIL_MIN_SKELETON_MS / 1000.0 - elapsed
+            if remaining > 0:
+                await asyncio.sleep(remaining)
+        if gid > 0 and self._match_detail_pending_game_id not in (0, gid):
+            return
+        self._match_detail = payload
+        self.matchDetailChanged.emit()
+        if gid > 0 and self._match_detail_pending_game_id == gid:
+            self._match_detail_pending_game_id = 0
+            self._match_detail_loading_started_at = 0.0
 
     def _schedule_match_detail_preload(self, matches: list[dict[str, Any]], request_seq: int) -> None:
         self._match_detail_preload_seq += 1
@@ -893,21 +920,38 @@ class LcuBridge(QObject):
     ) -> None:
         sem = asyncio.Semaphore(MATCH_DETAIL_PRELOAD_CONCURRENCY)
 
-        async def one(gid: int) -> None:
+        async def one(gid: int, warm_icons: bool) -> None:
             if (
                 request_seq != self._matches_request_seq
                 or preload_seq != self._match_detail_preload_seq
             ):
                 return
             if gid in self._match_detail_cache:
+                if warm_icons:
+                    self._preload_match_detail_icons(
+                        self._match_detail_cache[gid],
+                        priority=False,
+                        clear_pending=False,
+                    )
                 return
             async with sem:
                 try:
-                    await self._get_projected_match_detail(gid)
+                    detail = await self._get_projected_match_detail(gid)
+                    if warm_icons:
+                        self._preload_match_detail_icons(
+                            detail,
+                            priority=False,
+                            clear_pending=False,
+                        )
                 except Exception as e:  # noqa: BLE001
                     log.debug("match detail preload failed gid=%s: %s", gid, e)
 
-        await asyncio.gather(*(one(gid) for gid in game_ids))
+        await asyncio.gather(
+            *(
+                one(gid, idx < MATCH_DETAIL_ICON_PRELOAD_COUNT)
+                for idx, gid in enumerate(game_ids)
+            )
+        )
 
     async def _get_projected_match_detail(self, game_id: int) -> dict[str, Any]:
         cached = self._match_detail_cache.get(game_id)

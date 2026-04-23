@@ -5,6 +5,7 @@ import FluentUI
 import "../components"
 
 FluScrollablePage {
+    id: page
     launchMode: FluPageType.SingleTask
     title: qsTr("我的生涯")
 
@@ -259,4 +260,5 @@ FluScrollablePage {
             default: return q || ""
         }
     }
+
 }

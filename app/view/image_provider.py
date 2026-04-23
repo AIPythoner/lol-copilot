@@ -28,7 +28,7 @@ PRELOAD_WORKER_COUNT = 8
 
 
 class LcuImageProvider(QQuickImageProvider):
-    def __init__(self, cache_limit: int = 512) -> None:
+    def __init__(self, cache_limit: int = 2048) -> None:
         super().__init__(QQuickImageProvider.Pixmap)
         self._lock = threading.Lock()
         self._client: Optional[httpx.Client] = None

@@ -6,6 +6,7 @@ import "../components"
 import "../js/fmt.js" as Fmt
 
 FluScrollablePage {
+    id: page
     launchMode: FluPageType.Standard
     title: qsTr("召唤师主页")
 
