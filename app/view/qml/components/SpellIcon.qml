@@ -34,10 +34,10 @@ Item {
     }
 
     FluTooltip {
-        text: Lcu.spellsById[String(root.spellId)]
-            ? Lcu.spellsById[String(root.spellId)].name
+        text: showTooltip && mouse.containsMouse && root.spellId > 0
+            ? Lcu.spellName(root.spellId)
             : ""
-        visible: showTooltip && mouse.containsMouse && text.length > 0
+        visible: text.length > 0
     }
 
     MouseArea {

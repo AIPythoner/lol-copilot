@@ -221,35 +221,45 @@ Item {
                         Layout.alignment: Qt.AlignVCenter
                     }
 
-                    GridLayout {
-                        visible: root.detail.usesAugments === true
-                        columns: 3
-                        columnSpacing: 2
-                        rowSpacing: 2
-                        Layout.preferredWidth: 3 * root.augmentIconSize + 4
-                        Layout.preferredHeight: 2 * root.augmentIconSize + 2
+                    // Only one of the two cells is ever instantiated — avoids
+                    // building 6 AugmentIcons per row in non-arena modes (and
+                    // vice versa) just to hide them.
+                    Loader {
                         Layout.alignment: Qt.AlignVCenter
-
-                        Repeater {
-                            model: (participant.augments || []).filter(function(a){ return a > 0 }).slice(0, 6)
-                            delegate: AugmentIcon {
-                                augmentId: modelData
-                                size: root.augmentIconSize
+                        Layout.preferredWidth: root.detail.usesAugments === true
+                            ? (3 * root.augmentIconSize + 4)
+                            : (root.compactRows ? 42 : 46)
+                        Layout.preferredHeight: root.detail.usesAugments === true
+                            ? (2 * root.augmentIconSize + 2)
+                            : (root.compactRows ? 42 : 46)
+                        sourceComponent: root.detail.usesAugments === true
+                            ? augmentsCell
+                            : runesCell
+                    }
+                    Component {
+                        id: augmentsCell
+                        GridLayout {
+                            columns: 3
+                            columnSpacing: 2
+                            rowSpacing: 2
+                            Repeater {
+                                model: (participant.augments || []).filter(function(a){ return a > 0 }).slice(0, 6)
+                                delegate: AugmentIcon {
+                                    augmentId: modelData
+                                    size: root.augmentIconSize
+                                }
                             }
                         }
                     }
-
-                    Item {
-                        visible: !root.detail.usesAugments
-                        Layout.preferredWidth: root.compactRows ? 42 : 46
-                        Layout.preferredHeight: root.compactRows ? 42 : 46
-                        Layout.alignment: Qt.AlignVCenter
-
-                        RuneBadge {
-                            anchors.centerIn: parent
-                            keystoneId: (participant.perks && participant.perks[0]) || 0
-                            subStyleId: participant.subStyleId || 0
-                            size: root.compactRows ? 36 : 40
+                    Component {
+                        id: runesCell
+                        Item {
+                            RuneBadge {
+                                anchors.centerIn: parent
+                                keystoneId: (participant.perks && participant.perks[0]) || 0
+                                subStyleId: participant.subStyleId || 0
+                                size: root.compactRows ? 36 : 40
+                            }
                         }
                     }
                 }

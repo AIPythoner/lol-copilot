@@ -37,10 +37,13 @@ Item {
     }
 
     FluTooltip {
-        text: Lcu.itemsById[String(root.itemId)]
-            ? Lcu.itemsById[String(root.itemId)].name
+        // Lazy: see comment in ChampionIcon. Lcu.itemsById is a 1k+ entry dict
+        // — marshalling it for every ItemSlot's tooltip binding dominates
+        // first-render cost on the match detail page.
+        text: showTooltip && mouse.containsMouse && root.itemId > 0
+            ? Lcu.itemName(root.itemId)
             : ""
-        visible: showTooltip && mouse.containsMouse && text.length > 0
+        visible: text.length > 0
     }
 
     MouseArea {

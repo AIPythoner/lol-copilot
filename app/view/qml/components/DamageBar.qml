@@ -31,7 +31,6 @@ Item {
             width: parent.width * Math.max(0, Math.min(1, root.share))
             radius: 3
             color: root.teamId === 100 ? "#4684d4" : "#c64343"
-            Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
         }
     }
 }

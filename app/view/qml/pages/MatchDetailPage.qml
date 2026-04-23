@@ -12,8 +12,11 @@ FluScrollablePage {
     property var detail: ({})
     property bool isLoading: detail.loading === true || (myGameId > 0 && !detail.participants && !detail.error)
     property bool hasError: !!detail.error
-    readonly property bool showLoadingState: isLoading && !hasError
-    readonly property bool showContent: !isLoading && !hasError && !!detail.participants && detail.participants.length > 0
+    readonly property bool hasData: !isLoading && !hasError && !!detail.participants && detail.participants.length > 0
+    // Data is here but Loader hasn't finished async instantiation yet — keep skeleton up.
+    readonly property bool isRendering: hasData && contentLoader.status !== Loader.Ready
+    readonly property bool showLoadingState: (isLoading || isRendering) && !hasError
+    readonly property bool showContent: hasData
     property real loadingPulse: 0.62
 
     Component.onCompleted: _captureInitial()
@@ -156,19 +159,19 @@ FluScrollablePage {
 
     Loader {
         id: contentLoader
+        // Instantiate the ~200-item content tree on the QML loader thread so
+        // the GUI thread keeps responding while we build it. Skeleton above
+        // stays up until status === Ready (see isRendering).
+        asynchronous: true
         active: page.showContent
         width: parent ? parent.width : 0
         height: item ? item.implicitHeight : 0
-        visible: opacity > 0.01 || page.showContent
-        enabled: page.showContent
-        opacity: page.showContent ? 1 : 0
-        y: page.showContent ? 0 : 14
+        visible: status === Loader.Ready
+        enabled: visible
+        opacity: status === Loader.Ready ? 1 : 0
 
         Behavior on opacity {
-            NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
-        }
-        Behavior on y {
-            NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
         }
 
         sourceComponent: Component {

@@ -36,10 +36,13 @@ Item {
     }
 
     FluTooltip {
-        text: Lcu.championsById[String(root.championId)]
-            ? Lcu.championsById[String(root.championId)].name
+        // Lazy lookup: only call the name slot when actually hovered. Binding
+        // against Lcu.championsById triggers a full dict marshall into QML on
+        // every eval — prohibitive when 100+ icons exist on a match detail page.
+        text: showTooltip && mouse.containsMouse && root.championId > 0
+            ? Lcu.championName(root.championId)
             : ""
-        visible: showTooltip && mouse.containsMouse && text.length > 0
+        visible: text.length > 0
     }
 
     MouseArea {

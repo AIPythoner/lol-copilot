@@ -271,6 +271,11 @@ class LcuBridge(QObject):
         return self._best_asset_url(icon_path)
 
     @Slot(int, result=str)
+    def itemName(self, iid: int) -> str:
+        entry = self._items_by_id.get(str(iid))
+        return entry.get("name", "") if entry else ""
+
+    @Slot(int, result=str)
     def spellIcon(self, sid: int) -> str:
         if sid <= 0:
             return ""
@@ -279,12 +284,22 @@ class LcuBridge(QObject):
         return self._best_asset_url(icon_path)
 
     @Slot(int, result=str)
+    def spellName(self, sid: int) -> str:
+        entry = self._spells_by_id.get(str(sid))
+        return entry.get("name", "") if entry else ""
+
+    @Slot(int, result=str)
     def perkIcon(self, pid: int) -> str:
         if pid <= 0:
             return ""
         entry = self._perks_by_id.get(str(pid))
         icon_path = entry.get("iconPath", "") if entry else ""
         return self._best_asset_url(icon_path)
+
+    @Slot(int, result=str)
+    def perkName(self, pid: int) -> str:
+        entry = self._perks_by_id.get(str(pid))
+        return entry.get("name", "") if entry else ""
 
     @Slot(int, result=str)
     def augmentIcon(self, aid: int) -> str:
@@ -384,14 +399,16 @@ class LcuBridge(QObject):
         """
         gid = int(game_id)
         cached = self._match_detail_cache.get(gid)
-        self._set_match_detail_loading(gid)
         if cached is not None:
+            # Skip the loading frame + MIN_SKELETON wait entirely — data is
+            # already complete, so the page can render immediately.
+            self._match_detail_pending_game_id = 0
+            self._match_detail_loading_started_at = 0.0
+            self._match_detail = cached
             self._preload_match_detail_icons(cached, priority=True, clear_pending=True)
-            self._spawn(
-                self._publish_match_detail(cached),
-                name=f"bridge-match-detail-show-{gid}",
-            )
+            self.matchDetailChanged.emit()
         else:
+            self._set_match_detail_loading(gid)
             self._spawn(self._load_match_detail(gid))
         self.navigationRequested.emit("pages/MatchDetailPage.qml")
 

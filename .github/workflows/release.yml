@@ -37,14 +37,14 @@ jobs:
         shell: pwsh
         run: |
           $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "manual-${{ github.run_number }}" }
-          $zip = "lol-agent-windows-$version.zip"
-          Compress-Archive -Path "dist/lol-agent" -DestinationPath $zip -Force
+          $zip = "lol-copilot-windows-$version.zip"
+          Compress-Archive -Path "dist/lol-copilot" -DestinationPath $zip -Force
           "ZIP_PATH=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: lol-agent-windows
+          name: lol-copilot-windows
           path: ${{ env.ZIP_PATH }}
 
       - name: Publish GitHub Release
