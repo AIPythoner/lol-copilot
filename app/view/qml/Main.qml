@@ -78,7 +78,7 @@ FluWindow {
         cellHeight: 36
         navCompactWidth: 46
         logo: Qt.resolvedUrl("../assets/app-icon-64.png")
-        title: qsTr("LoL Agent")
+        title: qsTr("LoL Copilot")
 
         items: FluObject {
             FluPaneItem {
