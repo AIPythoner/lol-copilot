@@ -1889,8 +1889,17 @@ class LcuBridge(QObject):
             if not puuid:
                 me = await api.current_summoner(self._client)
                 puuid = me["puuid"]
-            mh = await api.match_history(self._client, puuid, 0, max(0, count - 1))
-            game_ids = [g.get("gameId") for g in (mh.get("games", {}).get("games") or []) if g.get("gameId")]
+            games: list[dict[str, Any]] = []
+            for begin in range(0, count, 20):
+                end = min(begin + 19, count - 1)
+                chunk = await api.match_history(self._client, puuid, begin, end)
+                batch = (chunk.get("games", {}).get("games") or [])
+                if not batch:
+                    break
+                games.extend(batch)
+                if len(batch) < (end - begin + 1):
+                    break
+            game_ids = [g.get("gameId") for g in games if g.get("gameId")]
             # Fetch details with bounded concurrency.
             sem = asyncio.Semaphore(5)
 
@@ -1903,7 +1912,56 @@ class LcuBridge(QObject):
 
             details = await asyncio.gather(*(one(gid) for gid in game_ids))
             details = [d for d in details if d]
-            self._teammates = [t.to_dict() for t in aggregate_teammates(details, puuid)]
+            teammates = aggregate_teammates(details, puuid)
+            if teammates:
+                summary_by_puuid: dict[str, dict[str, Any]] = {}
+                teammate_puuids = [t.puuid for t in teammates if t.puuid]
+                for start in range(0, len(teammate_puuids), 50):
+                    batch = teammate_puuids[start:start + 50]
+                    try:
+                        summaries = await api.summoners_by_puuids(self._client, batch)
+                    except Exception as e:  # noqa: BLE001
+                        log.debug("teammate profile resolve failed: %s", e)
+                        continue
+                    if isinstance(summaries, dict):
+                        summaries = summaries.get("summoners") or []
+                    for summary in summaries or []:
+                        if not isinstance(summary, dict):
+                            continue
+                        resolved_puuid = summary.get("puuid") or ""
+                        if resolved_puuid:
+                            summary_by_puuid[resolved_puuid] = summary
+                missing_puuids = [
+                    teammate.puuid for teammate in teammates
+                    if teammate.puuid and teammate.puuid not in summary_by_puuid
+                ]
+                if missing_puuids:
+                    sem_profile = asyncio.Semaphore(5)
+
+                    async def resolve_one(profile_puuid: str) -> tuple[str, dict[str, Any] | None]:
+                        async with sem_profile:
+                            try:
+                                data = await api.summoner_by_puuid(self._client, profile_puuid)
+                                return profile_puuid, data if isinstance(data, dict) else None
+                            except Exception as e:  # noqa: BLE001
+                                log.debug("teammate profile resolve by puuid failed puuid=%s: %s", profile_puuid, e)
+                                return profile_puuid, None
+
+                    resolved_profiles = await asyncio.gather(
+                        *(resolve_one(profile_puuid) for profile_puuid in missing_puuids)
+                    )
+                    for resolved_puuid, summary in resolved_profiles:
+                        if summary:
+                            summary_by_puuid[resolved_puuid] = summary
+                for teammate in teammates:
+                    summary = summary_by_puuid.get(teammate.puuid) or {}
+                    teammate.profile_icon_id = int(summary.get("profileIconId") or 0)
+                    teammate.summoner_level = int(summary.get("summonerLevel") or 0)
+                    game_name = (summary.get("gameName") or summary.get("displayName") or "").strip()
+                    tag_line = (summary.get("tagLine") or "").strip()
+                    if game_name:
+                        teammate.display_name = f"{game_name}#{tag_line}" if tag_line else game_name
+            self._teammates = [t.to_dict() for t in teammates]
             self.teammatesChanged.emit()
         except Exception as e:  # noqa: BLE001
             log.warning("teammates failed: %s", e)

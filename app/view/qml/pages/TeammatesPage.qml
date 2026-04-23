@@ -5,8 +5,10 @@ import FluentUI
 import "../components"
 
 FluScrollablePage {
+    id: page
     launchMode: FluPageType.SingleTask
     title: qsTr("最近队友")
+    property int requestedCount: 30
 
     property int maxGames: {
         var m = 0
@@ -35,16 +37,25 @@ FluScrollablePage {
                     Layout.fillWidth: true
                 }
                 RowLayout {
+                    Layout.fillWidth: true
                     spacing: 10
-                    FluFilledButton {
+                    FluToggleButton {
                         text: qsTr("分析 30 场")
+                        checked: page.requestedCount === 30
                         enabled: Lcu.connected
-                        onClicked: Lcu.loadTeammates(30)
+                        clickListener: function() {
+                            page.requestedCount = 30
+                            Lcu.loadTeammates(30)
+                        }
                     }
-                    FluButton {
-                        text: qsTr("50 场")
+                    FluToggleButton {
+                        text: qsTr("分析 50 场")
+                        checked: page.requestedCount === 50
                         enabled: Lcu.connected
-                        onClicked: Lcu.loadTeammates(50)
+                        clickListener: function() {
+                            page.requestedCount = 50
+                            Lcu.loadTeammates(50)
+                        }
                     }
                     Item { Layout.fillWidth: true }
                     FluText {
@@ -72,8 +83,8 @@ FluScrollablePage {
     component TeammateCard: FluArea {
         id: card
         property var entry: ({})
-        Layout.preferredHeight: 76
-        paddings: 10
+        Layout.preferredHeight: 92
+        paddings: 12
 
         MouseArea {
             anchors.fill: parent
@@ -84,74 +95,113 @@ FluScrollablePage {
 
         RowLayout {
             anchors.fill: parent
-            spacing: 12
+            spacing: 14
 
             ProfileIcon {
-                iconId: 29   // default icon — LCU match history doesn't include it
-                size: 48
+                iconId: entry.profileIconId || 29
+                size: 52
+                level: entry.summonerLevel || 0
+                Layout.alignment: Qt.AlignVCenter
             }
 
             ColumnLayout {
-                Layout.preferredWidth: 220
-                spacing: 3
-                FluText {
-                    text: entry.displayName || "?"
-                    font.bold: true
-                    elide: Text.ElideRight
-                    Layout.fillWidth: true
-                }
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
+                spacing: 8
+
                 RowLayout {
-                    spacing: 6
+                    Layout.fillWidth: true
+                    spacing: 10
+
                     FluText {
+                        text: entry.displayName || "?"
+                        font.bold: true
+                        elide: Text.ElideRight
+                        Layout.fillWidth: true
+                    }
+
+                    FluText {
+                        Layout.preferredWidth: 86
+                        horizontalAlignment: Text.AlignRight
                         text: qsTr("同队 ") + entry.gamesTogether + qsTr(" 次")
+                        color: FluColors.Grey120
                         font.pixelSize: 12
                     }
+
                     FluText {
-                        text: qsTr("胜率 ") + Math.round((entry.winRate || 0) * 100) + "%"
+                        Layout.preferredWidth: 78
+                        horizontalAlignment: Text.AlignRight
+                        text: entry.winsTogether + qsTr(" 胜 / ")
+                            + (entry.gamesTogether - entry.winsTogether) + qsTr(" 负")
+                        color: FluColors.Grey120
+                        font.pixelSize: 12
+                    }
+
+                    FluText {
+                        Layout.preferredWidth: 54
+                        horizontalAlignment: Text.AlignRight
+                        text: Math.round((entry.winRate || 0) * 100) + "%"
                         color: (entry.winRate || 0) >= 0.55 ? "#3ea04a"
                              : (entry.winRate || 0) >= 0.45 ? FluColors.Grey120 : "#c64343"
                         font.pixelSize: 12
                         font.bold: true
                     }
                 }
-            }
 
-            // progress bar (relative to top teammate)
-            ColumnLayout {
-                Layout.preferredWidth: 220
-                spacing: 4
-                Rectangle {
+                RowLayout {
                     Layout.fillWidth: true
-                    height: 8
-                    radius: 4
-                    color: FluTheme.dark ? "#2a2a2a" : "#e4e4ea"
+                    spacing: 10
+
                     Rectangle {
-                        anchors.left: parent.left
-                        anchors.top: parent.top
-                        anchors.bottom: parent.bottom
-                        width: parent.width * (entry.gamesTogether / maxGames)
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 8
                         radius: 4
-                        color: "#4684d4"
+                        color: FluTheme.dark ? "#2a2a2a" : "#e4e4ea"
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            width: parent.width * (entry.gamesTogether / maxGames)
+                            radius: parent.radius
+                            color: "#4684d4"
+                        }
+                    }
+
+                    FluText {
+                        Layout.preferredWidth: 118
+                        horizontalAlignment: Text.AlignRight
+                        text: qsTr("最高 ") + entry.gamesTogether + qsTr(" 场同队")
+                        color: FluColors.Grey120
+                        font.pixelSize: 11
                     }
                 }
+            }
+
+            ColumnLayout {
+                Layout.preferredWidth: 176
+                Layout.minimumWidth: 176
+                Layout.maximumWidth: 176
+                Layout.alignment: Qt.AlignVCenter
+                spacing: 6
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Item { Layout.fillWidth: true }
+                    Repeater {
+                        model: (entry.championIdsSeen || []).slice(0, 5)
+                        delegate: ChampionIcon {
+                            championId: modelData
+                            size: 28
+                        }
+                    }
+                }
+
                 FluText {
-                    text: entry.winsTogether + qsTr(" 胜  /  ") + (entry.gamesTogether - entry.winsTogether) + qsTr(" 负")
+                    Layout.alignment: Qt.AlignRight
+                    text: qsTr("点击查看召唤师主页")
                     color: FluColors.Grey120
                     font.pixelSize: 11
-                }
-            }
-
-            Item { Layout.fillWidth: true }
-
-            // recent champion icons
-            RowLayout {
-                spacing: 4
-                Repeater {
-                    model: (entry.championIdsSeen || []).slice(0, 5)
-                    delegate: ChampionIcon {
-                        championId: modelData
-                        size: 32
-                    }
                 }
             }
         }

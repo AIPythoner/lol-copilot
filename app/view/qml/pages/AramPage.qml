@@ -60,17 +60,17 @@ FluScrollablePage {
                 FluToggleButton {
                     text: qsTr("全部")
                     checked: filterMode === 0
-                    onClicked: filterMode = 0
+                    clickListener: function() { filterMode = 0 }
                 }
                 FluToggleButton {
                     text: qsTr("加强")
                     checked: filterMode === 1
-                    onClicked: filterMode = 1
+                    clickListener: function() { filterMode = 1 }
                 }
                 FluToggleButton {
                     text: qsTr("削弱")
                     checked: filterMode === 2
-                    onClicked: filterMode = 2
+                    clickListener: function() { filterMode = 2 }
                 }
                 FluIconButton {
                     iconSource: FluentIcons.Refresh

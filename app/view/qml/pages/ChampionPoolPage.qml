@@ -5,11 +5,13 @@ import FluentUI
 import "../components"
 
 FluScrollablePage {
+    id: page
     launchMode: FluPageType.SingleTask
     title: qsTr("英雄池")
 
     Component.onCompleted: if (Lcu.connected) Lcu.loadChampionPool(100)
 
+    property int requestedCount: 100
     property int sortMode: 0   // 0 = games, 1 = winRate, 2 = kda
 
     property var sortedPool: {
@@ -37,15 +39,23 @@ FluScrollablePage {
                 anchors.fill: parent
                 spacing: 10
 
-                FluFilledButton {
+                FluToggleButton {
                     text: qsTr("分析 100 场")
+                    checked: page.requestedCount === 100
                     enabled: Lcu.connected
-                    onClicked: Lcu.loadChampionPool(100)
+                    clickListener: function() {
+                        page.requestedCount = 100
+                        Lcu.loadChampionPool(100)
+                    }
                 }
-                FluButton {
-                    text: qsTr("200 场")
+                FluToggleButton {
+                    text: qsTr("分析 200 场")
+                    checked: page.requestedCount === 200
                     enabled: Lcu.connected
-                    onClicked: Lcu.loadChampionPool(200)
+                    clickListener: function() {
+                        page.requestedCount = 200
+                        Lcu.loadChampionPool(200)
+                    }
                 }
 
                 Rectangle { width: 1; height: 24; color: FluColors.Grey120; opacity: 0.3 }
@@ -54,17 +64,17 @@ FluScrollablePage {
                 FluToggleButton {
                     text: qsTr("场次")
                     checked: sortMode === 0
-                    onClicked: sortMode = 0
+                    clickListener: function() { sortMode = 0 }
                 }
                 FluToggleButton {
                     text: qsTr("胜率")
                     checked: sortMode === 1
-                    onClicked: sortMode = 1
+                    clickListener: function() { sortMode = 1 }
                 }
                 FluToggleButton {
                     text: "KDA"
                     checked: sortMode === 2
-                    onClicked: sortMode = 2
+                    clickListener: function() { sortMode = 2 }
                 }
 
                 Item { Layout.fillWidth: true }

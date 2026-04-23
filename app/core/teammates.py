@@ -20,6 +20,8 @@ class TeammateEntry:
     puuid: str
     summoner_id: int
     display_name: str
+    profile_icon_id: int = 0
+    summoner_level: int = 0
     games_together: int = 0
     wins_together: int = 0
     champion_ids_seen: list[int] = field(default_factory=list)
@@ -33,6 +35,8 @@ class TeammateEntry:
             "puuid": self.puuid,
             "summonerId": self.summoner_id,
             "displayName": self.display_name,
+            "profileIconId": self.profile_icon_id,
+            "summonerLevel": self.summoner_level,
             "gamesTogether": self.games_together,
             "winsTogether": self.wins_together,
             "winRate": self.win_rate,
