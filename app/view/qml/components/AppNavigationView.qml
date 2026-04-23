@@ -1289,24 +1289,24 @@ Item {
                     }
                     break
                 case FluPageType.SingleInstance:
-                    // [PATCH] Re-entering a cached SingleInstance page: pop above
-                    // the existing placeholder (destroying any drilled-in detail
-                    // pages) and resync nav_stack2 to the matching cached page.
-                    // Without this, every sidebar click added another placeholder
-                    // frame even though the real page lives once in nav_stack2.
+                    // [PATCH] Re-entering a cached SingleInstance page: pop every
+                    // frame above the existing placeholder plus the placeholder
+                    // itself, then fall through so the normal "pageIndex found"
+                    // branch below sets nav_stack2.currentIndex and re-pushes a
+                    // fresh placeholder. Without popping the old placeholder,
+                    // every sidebar click leaked another one; without falling
+                    // through to the original branch, the display sometimes
+                    // stuck on the previous page (StackLayout not flipping
+                    // cleanly when we only resynced currentIndex ourselves).
                     while(nav_stack.currentItem !== page){
                         var popped = nav_stack.pop()
                         if(popped && popped.destroy){ popped.destroy() }
                         d.stackItems = d.stackItems.slice(0, -1)
                     }
-                    var _ns2 = loader_content.item.navStack2()
-                    for(var si = 0; si < _ns2.children.length; si++){
-                        if(_ns2.children[si].url === _urlStr){
-                            _ns2.currentIndex = si
-                            break
-                        }
-                    }
-                    return
+                    var poppedTarget = nav_stack.pop()
+                    if(poppedTarget && poppedTarget.destroy){ poppedTarget.destroy() }
+                    d.stackItems = d.stackItems.slice(0, -1)
+                    break
                 case FluPageType.Standard:
                 default:
                 }
