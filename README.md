@@ -6,6 +6,12 @@
 - 连接：LCU（League Client Update）本地 HTTPS + WebSocket
 - 数据源（推荐/出装）：OP.GG
 
+## 截图
+
+| 对局详情 | 工具面板 |
+| :---: | :---: |
+| ![对局详情](docs/screenshot-match-detail.png) | ![工具面板](docs/screenshot-tools.png) |
+
 ---
 
 ## ⚠️ 免责声明
