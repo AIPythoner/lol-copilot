@@ -5,7 +5,7 @@ import FluentUI
 import "../components"
 
 FluScrollablePage {
-    launchMode: FluPageType.SingleTask
+    launchMode: FluPageType.SingleInstance
     title: qsTr("我的生涯")
 
     ColumnLayout {

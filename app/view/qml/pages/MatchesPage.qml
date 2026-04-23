@@ -7,7 +7,7 @@ import "../js/fmt.js" as Fmt
 
 FluScrollablePage {
     id: page
-    launchMode: FluPageType.SingleTask
+    launchMode: FluPageType.SingleInstance
     title: qsTr("最近战绩")
 
     Component.onCompleted: _refreshIfNeeded()
@@ -15,6 +15,7 @@ FluScrollablePage {
 
     Connections {
         target: Lcu
+        enabled: page.visible
         function onConnectedChanged() {
             if (Lcu.connected) _refreshIfNeeded()
         }

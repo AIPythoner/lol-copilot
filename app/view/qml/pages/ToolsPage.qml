@@ -5,7 +5,8 @@ import FluentUI
 import "../components"
 
 FluScrollablePage {
-    launchMode: FluPageType.SingleTask
+    id: page
+    launchMode: FluPageType.SingleInstance
     title: qsTr("工具")
 
     property string lobbyName: ""
@@ -15,6 +16,7 @@ FluScrollablePage {
     Component.onCompleted: if (Lcu.connected) Lcu.refreshHextech()
     Connections {
         target: Lcu
+        enabled: page.visible
         function onConnectedChanged() { if (Lcu.connected) Lcu.refreshHextech() }
     }
 

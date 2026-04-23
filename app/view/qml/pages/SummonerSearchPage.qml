@@ -5,7 +5,7 @@ import FluentUI
 import "../components"
 
 FluScrollablePage {
-    launchMode: FluPageType.SingleTask
+    launchMode: FluPageType.SingleInstance
     title: qsTr("召唤师搜索")
 
     property string query: ""

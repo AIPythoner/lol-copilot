@@ -5,7 +5,7 @@ import FluentUI
 import "../components"
 
 FluScrollablePage {
-    launchMode: FluPageType.SingleTask
+    launchMode: FluPageType.SingleInstance
     title: qsTr("OP.GG 出装")
 
     property int selectedChampionId: 0

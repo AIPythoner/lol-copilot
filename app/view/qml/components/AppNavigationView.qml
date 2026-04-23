@@ -1288,6 +1288,25 @@ Item {
                         return
                     }
                     break
+                case FluPageType.SingleInstance:
+                    // [PATCH] Re-entering a cached SingleInstance page: pop above
+                    // the existing placeholder (destroying any drilled-in detail
+                    // pages) and resync nav_stack2 to the matching cached page.
+                    // Without this, every sidebar click added another placeholder
+                    // frame even though the real page lives once in nav_stack2.
+                    while(nav_stack.currentItem !== page){
+                        var popped = nav_stack.pop()
+                        if(popped && popped.destroy){ popped.destroy() }
+                        d.stackItems = d.stackItems.slice(0, -1)
+                    }
+                    var _ns2 = loader_content.item.navStack2()
+                    for(var si = 0; si < _ns2.children.length; si++){
+                        if(_ns2.children[si].url === _urlStr){
+                            _ns2.currentIndex = si
+                            break
+                        }
+                    }
+                    return
                 case FluPageType.Standard:
                 default:
                 }

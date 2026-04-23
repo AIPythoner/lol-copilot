@@ -5,7 +5,7 @@ import FluentUI
 import "../components"
 
 FluScrollablePage {
-    launchMode: FluPageType.SingleTask
+    launchMode: FluPageType.SingleInstance
     title: qsTr("英雄池")
 
     Component.onCompleted: if (Lcu.connected) Lcu.loadChampionPool(100)
