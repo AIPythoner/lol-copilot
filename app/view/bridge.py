@@ -20,6 +20,7 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
+from PySide6.QtGui import QGuiApplication
 
 from app.common.config_store import (
     AppSettings,
@@ -475,6 +476,15 @@ class LcuBridge(QObject):
     @Slot(str)
     def setStatusMessage(self, msg: str) -> None:
         self._spawn(self._safe_call(api.set_status_message(self._client, msg)))
+
+    @Slot(str)
+    def copyToClipboard(self, text: str) -> None:
+        if not text:
+            return
+        cb = QGuiApplication.clipboard()
+        if cb is not None:
+            cb.setText(text)
+            self.notify.emit("已复制", text)
 
     @Slot(int)
     def setBackgroundSkin(self, skin_id: int) -> None:
@@ -993,6 +1003,7 @@ class LcuBridge(QObject):
                 "teamId": team_id,
                 "championId": p.get("championId"),
                 "summonerName": pl.get("gameName") or pl.get("summonerName") or "",
+                "tagLine": pl.get("tagLine") or "",
                 "puuid": pl.get("puuid") or "",
                 "summonerId": pl.get("summonerId") or 0,
                 "win": bool(stats.get("win")),

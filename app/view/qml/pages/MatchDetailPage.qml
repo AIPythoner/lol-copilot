@@ -370,11 +370,31 @@ FluScrollablePage {
                 Layout.alignment: Qt.AlignVCenter
                 spacing: 2
                 clip: true
-                FluText {
-                    text: participant.summonerName || "?"
-                    font.bold: true
-                    elide: Text.ElideRight
+                RowLayout {
                     Layout.fillWidth: true
+                    spacing: 4
+                    FluText {
+                        text: {
+                            var nm = participant.summonerName || "?"
+                            var tg = participant.tagLine || ""
+                            return tg.length > 0 ? nm + " #" + tg : nm
+                        }
+                        font.bold: true
+                        elide: Text.ElideRight
+                        Layout.fillWidth: true
+                    }
+                    FluIconButton {
+                        iconSource: FluentIcons.Copy
+                        iconSize: 11
+                        Layout.preferredWidth: 22
+                        Layout.preferredHeight: 22
+                        visible: (participant.summonerName || "").length > 0
+                        onClicked: {
+                            var nm = participant.summonerName || ""
+                            var tg = participant.tagLine || ""
+                            Lcu.copyToClipboard(tg.length > 0 ? nm + "#" + tg : nm)
+                        }
+                    }
                 }
                 FluText {
                     text: qsTr("分数 ") + Math.round(participant.score || 0)
