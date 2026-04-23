@@ -1,6 +1,6 @@
 # lol-copilot
 
-英雄联盟战绩助手。
+可能是史上最好用的开源英雄联盟战绩助手——功能全面、使用丝滑、不占资源。
 
 - UI：PySide6 + [FluentUI-QML](https://github.com/zhuzichu520/PySide6-FluentUI-QML)
 - 连接：LCU（League Client Update）本地 HTTPS + WebSocket
@@ -87,7 +87,7 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-Release 产物是 `lol-agent-windows-<version>.zip`，解压后运行 `lol-agent/lol-agent.exe`。也可以在 GitHub Actions 页面手动触发 `Build Windows Release`，手动构建只上传 artifact，不创建 Release。
+Release 产物是 `lol-copilot-windows-<version>.zip`，解压后运行 `lol-copilot/lol-copilot.exe`。也可以在 GitHub Actions 页面手动触发 `Build Windows Release`，手动构建只上传 artifact，不创建 Release。
 
 ## 目录
 
