@@ -5,7 +5,7 @@ import FluentUI
 import "../components"
 
 FluScrollablePage {
-    launchMode: FluPageType.SingleInstance
+    launchMode: FluPageType.SingleTask
     title: qsTr("设置")
 
     property var tierModel: ["platinum_plus", "emerald_plus", "diamond_plus", "master_plus"]

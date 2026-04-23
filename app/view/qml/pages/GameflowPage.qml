@@ -4,7 +4,7 @@ import QtQuick.Layouts
 import FluentUI
 
 FluScrollablePage {
-    launchMode: FluPageType.SingleInstance
+    launchMode: FluPageType.SingleTask
     title: qsTr("对局")
 
     ColumnLayout {

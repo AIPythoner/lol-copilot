@@ -5,7 +5,7 @@ import FluentUI
 import "../components"
 
 FluScrollablePage {
-    launchMode: FluPageType.SingleInstance
+    launchMode: FluPageType.SingleTask
     title: qsTr("ARAM 增益 / 减益")
 
     Component.onCompleted: Lcu.loadAramBuffs()

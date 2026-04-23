@@ -1288,25 +1288,6 @@ Item {
                         return
                     }
                     break
-                case FluPageType.SingleInstance:
-                    // [PATCH] Re-entering a cached SingleInstance page: pop every
-                    // frame above the existing placeholder plus the placeholder
-                    // itself, then fall through so the normal "pageIndex found"
-                    // branch below sets nav_stack2.currentIndex and re-pushes a
-                    // fresh placeholder. Without popping the old placeholder,
-                    // every sidebar click leaked another one; without falling
-                    // through to the original branch, the display sometimes
-                    // stuck on the previous page (StackLayout not flipping
-                    // cleanly when we only resynced currentIndex ourselves).
-                    while(nav_stack.currentItem !== page){
-                        var popped = nav_stack.pop()
-                        if(popped && popped.destroy){ popped.destroy() }
-                        d.stackItems = d.stackItems.slice(0, -1)
-                    }
-                    var poppedTarget = nav_stack.pop()
-                    if(poppedTarget && poppedTarget.destroy){ poppedTarget.destroy() }
-                    d.stackItems = d.stackItems.slice(0, -1)
-                    break
                 case FluPageType.Standard:
                 default:
                 }
@@ -1354,6 +1335,35 @@ Item {
         }else if(pageMode === FluNavigationViewType.NoStack){
             noStackPush()
         }
+    }
+    // [PATCH] Sidebar navigation: tear the whole stack down (destroying every
+    // page so its Lcu Connections/bindings stop running) and push the target
+    // fresh. Regular push() stacks pages on top of each other; when you then
+    // click another sidebar entry, the previous page stays alive and keeps
+    // reacting to WebSocket signals, which manifests as a visible hitch on
+    // the next first-visit page construction. This method gives us clean
+    // "one live page at a time" semantics for top-level tabs while keeping
+    // push() unchanged for drill-ins (match detail, summoner profile).
+    //
+    // Qt StackView.pop() refuses to remove the last remaining item (returns
+    // null without decrementing depth), so a naive `while(depth > 0) pop()`
+    // loop hangs the GUI thread forever. We snapshot the items first, then
+    // clear() the stack in one call, then destroy() them explicitly.
+    function navigateTop(url){
+        if(pageMode === FluNavigationViewType.Stack){
+            var nav_stack = loader_content.item.navStack()
+            var toDestroy = []
+            for(var i = 0; i < nav_stack.depth; i++){
+                var it = nav_stack.get(i)
+                if(it) toDestroy.push(it)
+            }
+            nav_stack.clear()
+            for(var j = 0; j < toDestroy.length; j++){
+                if(toDestroy[j].destroy) toDestroy[j].destroy()
+            }
+            d.stackItems = []
+        }
+        push(url)
     }
     function startPageByItem(data){
         var items = getItems()

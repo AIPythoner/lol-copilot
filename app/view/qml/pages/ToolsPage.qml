@@ -6,7 +6,7 @@ import "../components"
 
 FluScrollablePage {
     id: page
-    launchMode: FluPageType.SingleInstance
+    launchMode: FluPageType.SingleTask
     title: qsTr("工具")
 
     property string lobbyName: ""
@@ -16,7 +16,6 @@ FluScrollablePage {
     Component.onCompleted: if (Lcu.connected) Lcu.refreshHextech()
     Connections {
         target: Lcu
-        enabled: page.visible
         function onConnectedChanged() { if (Lcu.connected) Lcu.refreshHextech() }
     }
 

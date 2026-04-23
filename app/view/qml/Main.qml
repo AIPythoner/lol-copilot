@@ -85,63 +85,63 @@ FluWindow {
                 title: qsTr("我的生涯")
                 icon: FluentIcons.Home
                 url: Qt.resolvedUrl("pages/OverviewPage.qml")
-                onTap: nav.push(url)
+                onTap: nav.navigateTop(url)
             }
             FluPaneItem {
                 title: qsTr("战绩")
                 icon: FluentIcons.HistoryList
                 url: Qt.resolvedUrl("pages/MatchesPage.qml")
-                onTap: nav.push(url)
+                onTap: nav.navigateTop(url)
             }
             FluPaneItem {
                 title: qsTr("选人")
                 icon: FluentIcons.People
                 url: Qt.resolvedUrl("pages/ChampSelectPage.qml")
-                onTap: nav.push(url)
+                onTap: nav.navigateTop(url)
             }
             FluPaneItem {
                 title: qsTr("对局")
                 icon: FluentIcons.Play
                 url: Qt.resolvedUrl("pages/GameflowPage.qml")
-                onTap: nav.push(url)
+                onTap: nav.navigateTop(url)
             }
             FluPaneItem {
                 title: qsTr("OP.GG 出装")
                 icon: FluentIcons.Lightbulb
                 url: Qt.resolvedUrl("pages/OpggPage.qml")
-                onTap: nav.push(url)
+                onTap: nav.navigateTop(url)
             }
             FluPaneItemSeparator {}
             FluPaneItem {
                 title: qsTr("召唤师搜索")
                 icon: FluentIcons.Search
                 url: Qt.resolvedUrl("pages/SummonerSearchPage.qml")
-                onTap: nav.push(url)
+                onTap: nav.navigateTop(url)
             }
             FluPaneItem {
                 title: qsTr("英雄池")
                 icon: FluentIcons.FavoriteStar
                 url: Qt.resolvedUrl("pages/ChampionPoolPage.qml")
-                onTap: nav.push(url)
+                onTap: nav.navigateTop(url)
             }
             FluPaneItem {
                 title: qsTr("最近队友")
                 icon: FluentIcons.Group
                 url: Qt.resolvedUrl("pages/TeammatesPage.qml")
-                onTap: nav.push(url)
+                onTap: nav.navigateTop(url)
             }
             FluPaneItem {
                 title: qsTr("ARAM 增益")
                 icon: FluentIcons.Shield
                 url: Qt.resolvedUrl("pages/AramPage.qml")
-                onTap: nav.push(url)
+                onTap: nav.navigateTop(url)
             }
             FluPaneItemSeparator {}
             FluPaneItem {
                 title: qsTr("工具")
                 icon: FluentIcons.DeveloperTools
                 url: Qt.resolvedUrl("pages/ToolsPage.qml")
-                onTap: nav.push(url)
+                onTap: nav.navigateTop(url)
             }
             FluPaneItemSeparator {}
         }
@@ -151,13 +151,13 @@ FluWindow {
                 title: qsTr("组件预览")
                 icon: FluentIcons.Color
                 url: Qt.resolvedUrl("pages/ShowcasePage.qml")
-                onTap: nav.push(url)
+                onTap: nav.navigateTop(url)
             }
             FluPaneItem {
                 title: qsTr("设置")
                 icon: FluentIcons.Settings
                 url: Qt.resolvedUrl("pages/SettingsPage.qml")
-                onTap: nav.push(url)
+                onTap: nav.navigateTop(url)
             }
         }
 

@@ -5,7 +5,7 @@ import FluentUI
 import "../components"
 
 FluScrollablePage {
-    launchMode: FluPageType.SingleInstance
+    launchMode: FluPageType.SingleTask
     title: qsTr("选人分析")
 
     Component.onCompleted: if (Lcu.connected) Lcu.refreshChampSelect()
