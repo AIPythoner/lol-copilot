@@ -22,6 +22,7 @@ from PySide6.QtCore import (
     Slot,
 )
 from PySide6.QtGui import QGuiApplication
+from PySide6.QtQml import QJSValue
 
 from app.common.config_store import (
     AppSettings,
@@ -53,6 +54,17 @@ AI_SYSTEM_PROMPT = (
     "你是一个 LOL 游戏分析师，擅长分析玩家战绩和给出游戏建议。"
     "请用简洁、专业、直接的中文回复。所有结论都必须绑定数据证据，避免空泛。"
 )
+
+
+def _qml_to_python(value: Any) -> Any:
+    """Convert QML JavaScript objects/arrays passed through QVariant slots."""
+    if isinstance(value, QJSValue):
+        value = value.toVariant()
+    if isinstance(value, dict):
+        return {k: _qml_to_python(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_qml_to_python(v) for v in value]
+    return value
 
 
 class LcuBridge(QObject):
@@ -676,6 +688,7 @@ class LcuBridge(QObject):
     @Slot("QVariant")
     def updateAiConfig(self, raw: Any) -> None:
         """raw: {enabled, base_url, api_key, model}"""
+        raw = _qml_to_python(raw)
         if not isinstance(raw, dict):
             return
         ai = self._settings.ai
@@ -692,6 +705,7 @@ class LcuBridge(QObject):
     @Slot("QVariant")
     def updateAutoActions(self, raw: Any) -> None:
         """raw: {auto_accept, auto_ban, auto_pick, send_team_winrate, ban_priority, pick_priority}"""
+        raw = _qml_to_python(raw)
         if not isinstance(raw, dict):
             return
         log.info("updateAutoActions called: %s", raw)
@@ -708,6 +722,7 @@ class LcuBridge(QObject):
 
     @Slot("QVariant")
     def updateOpggPrefs(self, raw: Any) -> None:
+        raw = _qml_to_python(raw)
         if not isinstance(raw, dict):
             return
         op = self._settings.opgg

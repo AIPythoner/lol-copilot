@@ -43,22 +43,33 @@ FluArea {
 
         FluText { text: qsTr("自动动作"); font: FluTextStyle.Subtitle }
 
-        RowLayout {
+        Item {
             Layout.fillWidth: true
+            Layout.preferredHeight: 26
             ColumnLayout {
-                Layout.fillWidth: true
+                anchors.left: parent.left
+                anchors.right: autoAcceptToggle.left
+                anchors.rightMargin: 12
+                anchors.verticalCenter: parent.verticalCenter
                 FluText { text: qsTr("自动接受对局") }
             }
             Toggle {
+                id: autoAcceptToggle
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
                 checked: Lcu.settings.auto_actions.auto_accept
                 onToggled: function(value) { Lcu.updateAutoActions({"auto_accept": value}) }
             }
         }
 
-        RowLayout {
+        Item {
             Layout.fillWidth: true
+            Layout.preferredHeight: 46
             ColumnLayout {
-                Layout.fillWidth: true
+                anchors.left: parent.left
+                anchors.right: teamWinrateToggle.left
+                anchors.rightMargin: 12
+                anchors.verticalCenter: parent.verticalCenter
                 spacing: 2
                 FluText { text: qsTr("选人时发送队友胜率") }
                 FluText {
@@ -68,6 +79,9 @@ FluArea {
                 }
             }
             Toggle {
+                id: teamWinrateToggle
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
                 checked: Lcu.settings.auto_actions.send_team_winrate
                 onToggled: function(value) { Lcu.updateAutoActions({"send_team_winrate": value}) }
             }
@@ -76,13 +90,20 @@ FluArea {
         ColumnLayout {
             Layout.fillWidth: true
             spacing: 6
-            RowLayout {
+            Item {
                 Layout.fillWidth: true
+                Layout.preferredHeight: 26
                 ColumnLayout {
-                    Layout.fillWidth: true
+                    anchors.left: parent.left
+                    anchors.right: autoBanToggle.left
+                    anchors.rightMargin: 12
+                    anchors.verticalCenter: parent.verticalCenter
                     FluText { text: qsTr("自动禁用") }
                 }
                 Toggle {
+                    id: autoBanToggle
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
                     checked: Lcu.settings.auto_actions.auto_ban
                     onToggled: function(value) { Lcu.updateAutoActions({"auto_ban": value}) }
                 }
@@ -98,13 +119,20 @@ FluArea {
         ColumnLayout {
             Layout.fillWidth: true
             spacing: 6
-            RowLayout {
+            Item {
                 Layout.fillWidth: true
+                Layout.preferredHeight: 26
                 ColumnLayout {
-                    Layout.fillWidth: true
+                    anchors.left: parent.left
+                    anchors.right: autoPickToggle.left
+                    anchors.rightMargin: 12
+                    anchors.verticalCenter: parent.verticalCenter
                     FluText { text: qsTr("自动选择") }
                 }
                 Toggle {
+                    id: autoPickToggle
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
                     checked: Lcu.settings.auto_actions.auto_pick
                     onToggled: function(value) { Lcu.updateAutoActions({"auto_pick": value}) }
                 }
@@ -118,21 +146,28 @@ FluArea {
         }
     }
 
-    component ChampionChipRow: RowLayout {
+    component ChampionChipRow: Item {
         property string label: ""
         property var ids: []
         signal edit()
-        spacing: 8
+        Layout.preferredHeight: Math.max(32, editButton.implicitHeight)
 
         FluText {
-            Layout.preferredWidth: 90
+            id: chipLabel
+            width: 90
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
             text: label
             color: FluColors.Grey120
             font.pixelSize: 12
         }
 
         Flow {
-            Layout.fillWidth: true
+            anchors.left: chipLabel.right
+            anchors.leftMargin: 8
+            anchors.right: editButton.left
+            anchors.rightMargin: 12
+            anchors.verticalCenter: parent.verticalCenter
             spacing: 4
             Repeater {
                 model: ids || []
@@ -150,8 +185,11 @@ FluArea {
         }
 
         FluButton {
+            id: editButton
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
             text: qsTr("编辑")
-            onClicked: parent.edit()
+            onClicked: edit()
         }
     }
 

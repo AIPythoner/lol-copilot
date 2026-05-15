@@ -1,5 +1,7 @@
 # lol-copilot
 
+QQ群：947461001
+
 可能是史上最好用的开源英雄联盟战绩助手——功能全面、使用丝滑、不占资源。
 
 - UI：PySide6 + [FluentUI-QML](https://github.com/zhuzichu520/PySide6-FluentUI-QML)

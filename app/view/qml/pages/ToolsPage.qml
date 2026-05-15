@@ -341,19 +341,25 @@ FluScrollablePage {
 
                 FluText { text: qsTr("聊天广播"); font: FluTextStyle.Subtitle }
 
-                RowLayout {
+                Item {
                     Layout.fillWidth: true
-                    spacing: 10
-                    FluFilledButton {
-                        text: qsTr("一键发送所有人胜率")
-                        enabled: Lcu.connected
-                        onClicked: Lcu.sendAllWinrates()
-                    }
-                    Item { Layout.fillWidth: true }
+                    Layout.preferredHeight: 34
                     FluText {
+                        anchors.left: parent.left
+                        anchors.right: sendWinratesButton.left
+                        anchors.rightMargin: 10
+                        anchors.verticalCenter: parent.verticalCenter
                         text: qsTr("把双方近期战绩胜率发到选人聊天")
                         color: FluColors.Grey120
                         font.pixelSize: 11
+                    }
+                    FluFilledButton {
+                        id: sendWinratesButton
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: qsTr("一键发送所有人胜率")
+                        enabled: Lcu.connected
+                        onClicked: Lcu.sendAllWinrates()
                     }
                 }
             }
