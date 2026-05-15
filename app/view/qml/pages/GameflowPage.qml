@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import FluentUI
+import "../components"
 
 FluScrollablePage {
     launchMode: FluPageType.SingleTask
@@ -34,34 +35,10 @@ FluScrollablePage {
 
         Repeater {
             model: (Lcu.inGame && Lcu.inGame.myTeam) || []
-            delegate: FluArea {
+            delegate: PlayerRow {
+                player: modelData
+                accent: "#4684d4"
                 Layout.fillWidth: true
-                Layout.preferredHeight: 60
-                paddings: 12
-                RowLayout {
-                    anchors.fill: parent
-                    Rectangle {
-                        Layout.preferredWidth: 4
-                        Layout.fillHeight: true
-                        color: "#4684d4"
-                    }
-                    FluText { Layout.preferredWidth: 200; text: modelData.display_name || "?" }
-                    FluText {
-                        Layout.preferredWidth: 160
-                        text: modelData.ranks && modelData.ranks.length > 0
-                            ? modelData.ranks[0].tier + " " + modelData.ranks[0].division
-                            : "Unranked"
-                    }
-                    FluText {
-                        Layout.preferredWidth: 120
-                        text: qsTr("胜率 ") + Math.round((modelData.recent_win_rate||0)*100) + "%"
-                        color: FluColors.Grey120
-                    }
-                    FluText {
-                        text: qsTr("英雄 #") + (modelData.champion_id || "-")
-                        color: FluColors.Grey120
-                    }
-                }
             }
         }
 
@@ -72,34 +49,10 @@ FluScrollablePage {
 
         Repeater {
             model: (Lcu.inGame && Lcu.inGame.theirTeam) || []
-            delegate: FluArea {
+            delegate: PlayerRow {
+                player: modelData
+                accent: "#c64343"
                 Layout.fillWidth: true
-                Layout.preferredHeight: 60
-                paddings: 12
-                RowLayout {
-                    anchors.fill: parent
-                    Rectangle {
-                        Layout.preferredWidth: 4
-                        Layout.fillHeight: true
-                        color: "#c64343"
-                    }
-                    FluText { Layout.preferredWidth: 200; text: modelData.display_name || "?" }
-                    FluText {
-                        Layout.preferredWidth: 160
-                        text: modelData.ranks && modelData.ranks.length > 0
-                            ? modelData.ranks[0].tier + " " + modelData.ranks[0].division
-                            : "Unranked"
-                    }
-                    FluText {
-                        Layout.preferredWidth: 120
-                        text: qsTr("胜率 ") + Math.round((modelData.recent_win_rate||0)*100) + "%"
-                        color: FluColors.Grey120
-                    }
-                    FluText {
-                        text: qsTr("英雄 #") + (modelData.champion_id || "-")
-                        color: FluColors.Grey120
-                    }
-                }
             }
         }
 
@@ -109,5 +62,80 @@ FluScrollablePage {
             color: FluColors.Grey120
             Layout.alignment: Qt.AlignHCenter
         }
+    }
+
+    component PlayerRow: FluArea {
+        property var player: ({})
+        property string accent: "#4684d4"
+        property bool hidden: (player.display_name || "?") === "???"
+        Layout.preferredHeight: 72
+        paddings: 10
+        opacity: hidden ? 0.55 : 1.0
+
+        RowLayout {
+            anchors.fill: parent
+            spacing: 12
+
+            Rectangle {
+                Layout.preferredWidth: 4
+                Layout.fillHeight: true
+                radius: 2
+                color: accent
+            }
+
+            ChampionIcon {
+                championId: player.champion_id || 0
+                size: 48
+            }
+
+            ColumnLayout {
+                Layout.preferredWidth: 180
+                spacing: 2
+                FluText {
+                    text: player.display_name || "?"
+                    font.bold: true
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
+                FluText {
+                    visible: (player.summoner_level || 0) > 0
+                    text: qsTr("等级 ") + (player.summoner_level || 0)
+                    color: FluColors.Grey120
+                    font.pixelSize: 11
+                }
+            }
+
+            TierBadge {
+                Layout.preferredWidth: 170
+                tier: (player.ranks && player.ranks.length > 0) ? (player.ranks[0].tier || "UNRANKED") : "UNRANKED"
+                division: (player.ranks && player.ranks.length > 0) ? (player.ranks[0].division || "") : ""
+                leaguePoints: (player.ranks && player.ranks.length > 0) ? (player.ranks[0].leaguePoints || 0) : 0
+                emblemSize: 36
+            }
+
+            ColumnLayout {
+                Layout.preferredWidth: 130
+                spacing: 2
+                FluText {
+                    text: qsTr("近 ") + ((player.recent || []).length) + qsTr(" 场胜率")
+                    color: FluColors.Grey120
+                    font.pixelSize: 11
+                }
+                FluText {
+                    text: Math.round((player.recent_win_rate || 0) * 100) + "%"
+                    font.bold: true
+                    color: _winrateColor(player.recent_win_rate || 0)
+                }
+            }
+
+            Item { Layout.fillWidth: true }
+        }
+    }
+
+    function _winrateColor(r) {
+        if (!r) return FluColors.Grey120
+        if (r >= 0.6) return "#3ea04a"
+        if (r >= 0.5) return "#d4a04a"
+        return "#c64343"
     }
 }

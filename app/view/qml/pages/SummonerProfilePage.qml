@@ -125,35 +125,47 @@ FluScrollablePage {
                 model: ranked
                 delegate: FluArea {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 90
-                    paddings: 12
+                    Layout.preferredHeight: 112
+                    paddings: 14
 
                     RowLayout {
                         anchors.fill: parent
-                        spacing: 10
-                        Image {
-                            Layout.preferredWidth: 52
-                            Layout.preferredHeight: 52
-                            fillMode: Image.PreserveAspectFit
-                            source: Lcu.tierEmblem(modelData.tier || "UNRANKED")
-                            sourceSize.width: 104
-                            sourceSize.height: 104
+                        spacing: 14
+                        Item {
+                            // Reserve a fixed slot so the layout can't shrink
+                            // the emblem to its (much smaller) implicit size.
+                            Layout.alignment: Qt.AlignVCenter
+                            Layout.preferredWidth: 84
+                            Layout.preferredHeight: 84
+                            Layout.minimumWidth: 84
+                            Layout.minimumHeight: 84
+                            Image {
+                                anchors.fill: parent
+                                fillMode: Image.PreserveAspectFit
+                                smooth: true
+                                cache: true
+                                source: Lcu.tierEmblem(modelData.tier || "UNRANKED")
+                                sourceSize.width: 168
+                                sourceSize.height: 168
+                            }
                         }
                         ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: 2
+                            spacing: 3
                             FluText {
                                 text: _queueLabel(modelData.queueType)
                                 color: FluColors.Grey120
                                 font.pixelSize: 11
                             }
                             FluText {
-                                text: (modelData.tier || "UNRANKED") + " " + (modelData.division || "")
+                                text: _tierLabel(modelData.tier, modelData.division)
                                 font.bold: true
+                                color: _tierColor(modelData.tier)
                             }
                             FluText {
-                                text: (modelData.leaguePoints || 0) + " LP   "
-                                    + (modelData.wins || 0) + "胜 " + (modelData.losses || 0) + "负"
+                                text: (modelData.leaguePoints || 0) + qsTr(" 胜点  ")
+                                    + (modelData.wins || 0) + qsTr("胜 ")
+                                    + (modelData.losses || 0) + qsTr("负")
                                 color: FluColors.Grey120
                                 font.pixelSize: 11
                             }
@@ -193,8 +205,44 @@ FluScrollablePage {
             case "RANKED_FLEX_SR":  return qsTr("灵活组排")
             case "RANKED_TFT": return qsTr("云顶之弈排位")
             case "RANKED_TFT_DOUBLE_UP": return qsTr("云顶双人")
+            case "RANKED_TFT_TURBO": return qsTr("云顶超玩")
             case "CHERRY": return qsTr("斗魂竞技场")
             default: return q || ""
+        }
+    }
+
+    function _tierLabel(tier, division) {
+        var t = (tier || "").toUpperCase()
+        var names = {
+            "IRON": "黑铁",
+            "BRONZE": "青铜",
+            "SILVER": "白银",
+            "GOLD": "黄金",
+            "PLATINUM": "白金",
+            "EMERALD": "翡翠",
+            "DIAMOND": "钻石",
+            "MASTER": "大师",
+            "GRANDMASTER": "宗师",
+            "CHALLENGER": "王者",
+        }
+        if (!t || t === "UNRANKED" || t === "NONE") return qsTr("未定级")
+        var label = names[t] || t
+        return division ? label + " " + division : label
+    }
+
+    function _tierColor(tier) {
+        switch ((tier || "").toUpperCase()) {
+            case "IRON": return "#7d6c5e"
+            case "BRONZE": return "#a07048"
+            case "SILVER": return "#9faebd"
+            case "GOLD": return "#d4a04a"
+            case "PLATINUM": return "#5ac8b5"
+            case "EMERALD": return "#3ea04a"
+            case "DIAMOND": return "#4684d4"
+            case "MASTER": return "#b964e0"
+            case "GRANDMASTER": return "#e06c75"
+            case "CHALLENGER": return "#f8d458"
+            default: return FluColors.Grey120
         }
     }
 

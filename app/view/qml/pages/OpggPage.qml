@@ -13,12 +13,37 @@ FluScrollablePage {
     property var modeModel: ["ranked", "aram", "arena", "urf"]
     property var positionModel: ["auto", "top", "jungle", "mid", "adc", "support"]
 
-    // build autosuggest data from loaded champions
+    // build autosuggest data from loaded champions. Each entry carries both
+    // the Chinese display name and the English alias plus a lowercased copy
+    // so the custom matcher below can match on either field, case-insensitive,
+    // and substring-anywhere (e.g. "yas" → Yasuo, "亚" → 亚索).
     property var champSuggestions: {
         var list = Lcu.champions || []
         var out = []
         for (var i = 0; i < list.length; i++) {
-            out.push({ title: list[i].name, id: list[i].id, alias: list[i].alias })
+            var c = list[i]
+            var name = c.name || ""
+            var alias = c.alias || ""
+            out.push({
+                id: c.id,
+                name: name,
+                alias: alias,
+                searchText: (name + " " + alias).toLowerCase(),
+            })
+        }
+        return out
+    }
+
+    function _filterChampions(query) {
+        var q = (query || "").trim().toLowerCase()
+        if (!q) return []
+        var out = []
+        for (var i = 0; i < champSuggestions.length; i++) {
+            var s = champSuggestions[i]
+            if (s.searchText.indexOf(q) !== -1) {
+                out.push(s)
+                if (out.length >= 20) break
+            }
         }
         return out
     }
@@ -52,16 +77,115 @@ FluScrollablePage {
                         visible: selectedChampionId > 0
                     }
 
-                    FluAutoSuggestBox {
-                        id: champBox
+                    Item {
                         Layout.preferredWidth: 240
-                        placeholderText: qsTr("选择英雄 (名字 / 别名)")
-                        emptyText: qsTr("没有匹配的英雄")
-                        items: champSuggestions
-                        onItemClicked: (data) => {
-                            selectedChampionId = data.id
-                            selectedChampionName = data.title
-                            text = data.title
+                        Layout.preferredHeight: 32
+
+                        FluTextBox {
+                            id: champBox
+                            anchors.fill: parent
+                            placeholderText: qsTr("选择英雄 (中文 / 英文 / 简写)")
+                            onTextChanged: {
+                                if (text.length > 0 && activeFocus) {
+                                    suggestPopup.visible = true
+                                } else if (text.length === 0) {
+                                    suggestPopup.visible = false
+                                }
+                            }
+                            onActiveFocusChanged: {
+                                if (!activeFocus) {
+                                    // delay so item-click handler still fires
+                                    closeTimer.start()
+                                } else if (text.length > 0) {
+                                    suggestPopup.visible = true
+                                }
+                            }
+                            Timer {
+                                id: closeTimer
+                                interval: 160
+                                onTriggered: suggestPopup.visible = false
+                            }
+                        }
+
+                        Popup {
+                            id: suggestPopup
+                            x: 0
+                            y: champBox.height
+                            width: champBox.width
+                            padding: 0
+                            visible: false
+                            closePolicy: Popup.NoAutoClose
+
+                            property var hits: _filterChampions(champBox.text)
+
+                            background: Rectangle {
+                                radius: 4
+                                color: FluTheme.dark ? "#252525" : "#fafafa"
+                                border.width: 1
+                                border.color: FluTheme.dark ? "#3a3a3a" : "#d8d8d8"
+                            }
+
+                            contentItem: Item {
+                                implicitHeight: Math.min(8, Math.max(1, suggestPopup.hits.length)) * 36
+
+                                ListView {
+                                    anchors.fill: parent
+                                    clip: true
+                                    boundsBehavior: ListView.StopAtBounds
+                                    model: suggestPopup.hits
+                                    ScrollBar.vertical: FluScrollBar {}
+
+                                    delegate: Rectangle {
+                                        width: ListView.view.width
+                                        height: 36
+                                        color: rowHover.hovered
+                                            ? (FluTheme.dark ? "#363636" : "#eaeaea")
+                                            : "transparent"
+
+                                        RowLayout {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 8
+                                            anchors.rightMargin: 8
+                                            spacing: 8
+
+                                            ChampionIcon {
+                                                championId: modelData.id
+                                                size: 26
+                                                showTooltip: false
+                                            }
+                                            FluText {
+                                                text: modelData.name
+                                                Layout.fillWidth: true
+                                                elide: Text.ElideRight
+                                            }
+                                            FluText {
+                                                text: modelData.alias
+                                                color: FluColors.Grey120
+                                                font.pixelSize: 11
+                                            }
+                                        }
+
+                                        HoverHandler { id: rowHover }
+                                        TapHandler {
+                                            onTapped: {
+                                                selectedChampionId = modelData.id
+                                                selectedChampionName = modelData.name
+                                                champBox.text = modelData.name
+                                                suggestPopup.visible = false
+                                                champBox.focus = false
+                                            }
+                                        }
+                                    }
+
+                                    FluText {
+                                        anchors.centerIn: parent
+                                        visible: suggestPopup.hits.length === 0 && champBox.text.length > 0
+                                        text: qsTr("没有匹配的英雄")
+                                        color: FluColors.Grey120
+                                        font.pixelSize: 12
+                                    }
+                                }
+                            }
                         }
                     }
 

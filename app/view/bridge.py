@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Any, Optional
 
 import httpx
@@ -46,6 +47,7 @@ MATCH_DETAIL_PRELOAD_CONCURRENCY = 4
 MATCH_DETAIL_ICON_PRELOAD_COUNT = 4
 MATCH_DETAIL_CACHE_LIMIT = 64
 MATCH_DETAIL_MIN_SKELETON_MS = 180
+MATCHES_DEFAULT_PAGE_SIZE = 20
 
 AI_SYSTEM_PROMPT = (
     "你是一个 LOL 游戏分析师，擅长分析玩家战绩和给出游戏建议。"
@@ -92,6 +94,8 @@ class LcuBridge(QObject):
         self._matches: list[dict[str, Any]] = []
         self._matches_loading: bool = False
         self._matches_request_seq: int = 0
+        self._matches_page_size: int = MATCHES_DEFAULT_PAGE_SIZE
+        self._matches_has_more: bool = True
         self._ranked: dict[str, Any] = {}
         self._champ_select: dict[str, Any] = {}
         self._match_detail: dict[str, Any] = {}
@@ -104,13 +108,18 @@ class LcuBridge(QObject):
         self._perk_styles_by_id: dict[str, Any] = {}
         self._queues_by_id: dict[str, Any] = {}
         self._augments_by_id: dict[str, Any] = {}
+        # Bump on every game-data reload — cheap scalar lets QML icon bindings
+        # re-eval when items.json arrives without subscribing to the whole dict.
+        self._game_data_rev: int = 0
         self._match_detail_cache: dict[int, dict] = {}
         self._match_detail_order: list[int] = []
         self._match_detail_inflight: dict[int, asyncio.Task] = {}
         self._match_detail_preload_seq: int = 0
         self._match_detail_loading_started_at: float = 0.0
         self._match_detail_pending_game_id: int = 0
-        self._winrate_sent_game_ids: set[int] = set()
+        # gameId is unreliable during champ-select on some patches (returns 0),
+        # so we dedup on the sorted teammate-puuid fingerprint of the session.
+        self._winrate_sent_fingerprints: set[str] = set()
         self._champion_pool: list[dict[str, Any]] = []
         self._teammates: list[dict[str, Any]] = []
         self._search_result: dict[str, Any] = {}
@@ -122,6 +131,14 @@ class LcuBridge(QObject):
         # instantly without re-billing tokens.
         self._ai_cache: dict[tuple[int, str, str], str] = {}
         self._ai_task: Optional[asyncio.Task] = None
+        # Background task polling for login completion. LCU's REST endpoints
+        # can return "not logged in" for several seconds after the WS handshake
+        # succeeds, so we keep retrying instead of giving up.
+        self._login_wait_task: Optional[asyncio.Task] = None
+        # Session-scoped puuid → primary rank cache. Match detail enriches
+        # participant rows with ranks; the same puuid often appears across
+        # adjacent matches so caching avoids redundant LCU calls.
+        self._rank_cache: dict[str, dict] = {}
 
         self._settings: AppSettings = load_settings()
         self._client = LcuClient()
@@ -192,6 +209,10 @@ class LcuBridge(QObject):
     def matchesLoading(self) -> bool:  # type: ignore[override]
         return self._matches_loading
 
+    @Property(bool, notify=matchesChanged)
+    def matchesHasMore(self) -> bool:  # type: ignore[override]
+        return self._matches_has_more
+
     @Property("QVariant", notify=rankedChanged)
     def ranked(self) -> dict:  # type: ignore[override]
         return self._ranked
@@ -236,6 +257,10 @@ class LcuBridge(QObject):
     def queuesById(self) -> dict:  # type: ignore[override]
         return self._queues_by_id
 
+    @Property(int, notify=gameDataChanged)
+    def gameDataRev(self) -> int:  # type: ignore[override]
+        return self._game_data_rev
+
     def _best_asset_url(self, icon_path: str, cdragon_fallback: str = "") -> str:
         """Return ``image://lcu/...`` when connected (localhost, ~5 ms), else CDragon.
 
@@ -268,7 +293,10 @@ class LcuBridge(QObject):
             return ""
         entry = self._items_by_id.get(str(iid))
         icon_path = entry.get("iconPath", "") if entry else ""
-        return self._best_asset_url(icon_path)
+        # CDragon hosts every item icon under a stable /items/<id>.png path,
+        # so we can serve a URL even if items.json hasn't finished loading
+        # (otherwise rows render with empty slots until the user navigates away).
+        return self._best_asset_url(icon_path, assets.item_icon(iid))
 
     @Slot(int, result=str)
     def itemName(self, iid: int) -> str:
@@ -382,7 +410,16 @@ class LcuBridge(QObject):
 
     @Slot(int)
     def refreshMatches(self, count: int) -> None:
-        self._spawn(self._load_matches(max(1, count)), name="bridge-matches")
+        self._spawn(self._load_matches(max(1, count), append=False), name="bridge-matches")
+
+    @Slot()
+    def loadMoreMatches(self) -> None:
+        if self._matches_loading or not self._matches_has_more:
+            return
+        self._spawn(
+            self._load_matches(self._matches_page_size, append=True),
+            name="bridge-matches-more",
+        )
 
     @Slot(float)
     def loadMatchDetail(self, game_id: float) -> None:
@@ -407,6 +444,11 @@ class LcuBridge(QObject):
             self._match_detail = cached
             self._preload_match_detail_icons(cached, priority=True, clear_pending=True)
             self.matchDetailChanged.emit()
+            if not cached.get("_ranks_loaded"):
+                self._spawn(
+                    self._enrich_match_detail_ranks(gid),
+                    name=f"bridge-match-ranks-{gid}",
+                )
         else:
             self._set_match_detail_loading(gid)
             self._spawn(self._load_match_detail(gid))
@@ -419,6 +461,16 @@ class LcuBridge(QObject):
     @Slot()
     def refreshChampSelect(self) -> None:
         self._spawn(self._load_champ_select(), name="bridge-champ-select")
+
+    @Slot()
+    def sendAllWinrates(self) -> None:
+        """Force-send a recent-winrate summary for every visible player.
+
+        Unlike the auto-trigger this also includes the enemy team (when their
+        info is visible) and ignores the once-per-fingerprint dedup so the
+        user can re-broadcast on demand.
+        """
+        self._spawn(self._send_all_winrates(), name="bridge-send-all-winrates")
 
     # ----- QML-callable slots: matchmaking actions -----
 
@@ -642,6 +694,7 @@ class LcuBridge(QObject):
         """raw: {auto_accept, auto_ban, auto_pick, send_team_winrate, ban_priority, pick_priority}"""
         if not isinstance(raw, dict):
             return
+        log.info("updateAutoActions called: %s", raw)
         aa = self._settings.auto_actions
         for k in ("auto_accept", "auto_ban", "auto_pick", "send_team_winrate"):
             if k in raw:
@@ -708,6 +761,10 @@ class LcuBridge(QObject):
             self._matches_loading = loading
             self.matchesLoadingChanged.emit()
 
+    @staticmethod
+    def _perf_ms(start: float) -> int:
+        return round((time.perf_counter() - start) * 1000)
+
     async def _on_creds_change(self, creds: Optional[LcuCredentials]) -> None:
         await self._client.set_credentials(creds)
         await self._events.set_credentials(creds)
@@ -729,12 +786,16 @@ class LcuBridge(QObject):
                 return_exceptions=True,
             )
         else:
+            if self._login_wait_task is not None and not self._login_wait_task.done():
+                self._login_wait_task.cancel()
+                self._login_wait_task = None
             self._summoner = {}
             self._phase = ""
             self._matches = []
             self._set_matches_loading(False)
             self._ranked = {}
             self._champ_select = {}
+            self._rank_cache.clear()
             for sig in (
                 self.summonerChanged,
                 self.phaseChanged,
@@ -763,15 +824,26 @@ class LcuBridge(QObject):
                     self._champ_select = {}
                     self.champSelectChanged.emit()
                 if new_phase in ("None", "Lobby"):
-                    self._winrate_sent_game_ids.clear()
+                    self._winrate_sent_fingerprints.clear()
                 if new_phase in ("None", "Lobby") and self._in_game:
                     self._in_game = {}
                     self.inGameChanged.emit()
 
     async def _on_summoner_event(self, ev: LcuEvent) -> None:
         if isinstance(ev.data, dict):
+            had_summoner = bool(self._summoner.get("puuid")) if self._summoner else False
             self._summoner = ev.data
             self.summonerChanged.emit()
+            # If we hadn't loaded a summoner yet (client was sitting at the
+            # login screen on startup), now's the moment to fetch matches /
+            # ranked / etc. — the rest of _refresh_all bails on the "not
+            # logged in" 404 until this event arrives. Cancel any in-flight
+            # login-polling task so we don't double-fetch.
+            if not had_summoner and ev.data.get("puuid"):
+                if self._login_wait_task is not None and not self._login_wait_task.done():
+                    self._login_wait_task.cancel()
+                    self._login_wait_task = None
+                self._spawn(self._refresh_all(), name="bridge-refresh-after-login")
 
     async def _on_champ_select_event(self, ev: LcuEvent) -> None:
         if ev.event_type == "Delete":
@@ -805,17 +877,83 @@ class LcuBridge(QObject):
             )
         except NotConnectedError:
             pass
+        except LcuError as e:
+            # LCU returns 404 RPC_ERROR "You are not logged in" when its REST
+            # surface comes up before the user has finished signing in (this
+            # is normal during startup and can persist for many seconds on
+            # TENCENT). Poll in the background until it succeeds instead of
+            # giving up — otherwise the profile page sits empty forever.
+            if self._is_not_logged_in_error(e):
+                self._start_login_wait()
+                return
+            log.exception("refresh failed: %s", e)
+            self.errorOccurred.emit(str(e))
         except Exception as e:  # noqa: BLE001
             log.exception("refresh failed: %s", e)
             self.errorOccurred.emit(str(e))
 
-    async def _load_matches(self, count: int, puuid: str | None = None) -> None:
+    @staticmethod
+    def _is_not_logged_in_error(e: LcuError) -> bool:
+        if e.status != 404:
+            return False
+        payload = e.payload if isinstance(e.payload, dict) else {}
+        return "not logged in" in str(payload.get("message", "")).lower()
+
+    def _start_login_wait(self) -> None:
+        if self._login_wait_task is not None and not self._login_wait_task.done():
+            return
+        log.info("refresh waiting for login (lcu not logged in yet) — polling")
+        self._login_wait_task = self._spawn(self._wait_for_login(), name="bridge-login-wait")
+
+    async def _wait_for_login(self) -> None:
+        # Exponential-ish backoff capped at 10s — fast enough that the UI
+        # populates within a couple of seconds of login completing, slow
+        # enough that we don't hammer LCU.
+        delays = [1.0, 2.0, 3.0, 5.0]
+        idx = 0
+        while self._client.is_connected():
+            await asyncio.sleep(delays[min(idx, len(delays) - 1)])
+            idx += 1
+            try:
+                me = await api.current_summoner(self._client)
+            except NotConnectedError:
+                return
+            except LcuError as e:
+                if self._is_not_logged_in_error(e):
+                    continue
+                log.warning("login wait got non-login error: %s", e)
+                return
+            except Exception as e:  # noqa: BLE001
+                log.warning("login wait failed: %s", e)
+                return
+            self._summoner = me
+            self.summonerChanged.emit()
+            log.info("login detected — refreshing data")
+            await self._refresh_all()
+            return
+
+    async def _load_matches(
+        self,
+        count: int,
+        puuid: str | None = None,
+        *,
+        append: bool = False,
+    ) -> None:
         if not self._client.is_connected():
             self._set_matches_loading(False)
             return
         self._matches_request_seq += 1
         request_seq = self._matches_request_seq
+        begin_index = len(self._matches) if append else 0
+        page_size = max(1, count)
+        self._matches_page_size = page_size
+        if not append:
+            self._matches_has_more = True
         self._set_matches_loading(True)
+        started_at = time.perf_counter()
+        fetch_ms = 0
+        project_ms = 0
+        fetched_count = 0
         try:
             if not puuid:
                 puuid = (self._summoner or {}).get("puuid") or ""
@@ -823,18 +961,43 @@ class LcuBridge(QObject):
                 me = await api.current_summoner(self._client)
                 puuid = me["puuid"]
             games: list[dict[str, Any]] = []
-            for begin in range(0, count, 20):
-                end = min(begin + 19, count - 1)
+            fetch_started_at = time.perf_counter()
+            end_index = begin_index + page_size
+            for begin in range(begin_index, end_index, 20):
+                end = min(begin + 19, end_index - 1)
                 raw = await api.match_history(self._client, puuid, begin, end)
                 batch = raw.get("games", {}).get("games", [])
                 games.extend(batch)
+                fetched_count += len(batch)
                 if request_seq != self._matches_request_seq or len(batch) < (end - begin + 1):
                     break
+            fetch_ms = self._perf_ms(fetch_started_at)
             if request_seq != self._matches_request_seq:
                 return
-            self._matches = [self._project_match(g) for g in games]
+            project_started_at = time.perf_counter()
+            projected = [self._project_match(g) for g in games]
+            project_ms = self._perf_ms(project_started_at)
+            if append:
+                seen_ids = {m.get("gameId") for m in self._matches}
+                self._matches.extend(m for m in projected if m.get("gameId") not in seen_ids)
+            else:
+                self._matches = projected
+            self._matches_has_more = fetched_count >= page_size
             self.matchesChanged.emit()
-            self._schedule_match_detail_preload(self._matches, request_seq)
+            self._schedule_match_detail_preload(projected if append else self._matches, request_seq)
+            log.info(
+                "perf matches append=%s begin=%s requested=%s fetched=%s total=%s "
+                "has_more=%s fetch_ms=%s project_ms=%s total_ms=%s",
+                append,
+                begin_index,
+                page_size,
+                fetched_count,
+                len(self._matches),
+                self._matches_has_more,
+                fetch_ms,
+                project_ms,
+                self._perf_ms(started_at),
+            )
         except Exception as e:  # noqa: BLE001
             log.exception("load matches failed: %s", e)
             self.errorOccurred.emit(str(e))
@@ -864,6 +1027,11 @@ class LcuBridge(QObject):
         if cached is not None:
             self._preload_match_detail_icons(cached, priority=True)
             await self._publish_match_detail(cached)
+            if not cached.get("_ranks_loaded"):
+                self._spawn(
+                    self._enrich_match_detail_ranks(game_id),
+                    name=f"bridge-match-ranks-{game_id}",
+                )
             return
         current_gid = int((self._match_detail or {}).get("gameId") or -1)
         if current_gid != game_id or not bool((self._match_detail or {}).get("loading")):
@@ -872,10 +1040,127 @@ class LcuBridge(QObject):
             projected = await self._get_projected_match_detail(game_id)
             self._preload_match_detail_icons(projected, priority=True, clear_pending=True)
             await self._publish_match_detail(projected)
+            self._spawn(
+                self._enrich_match_detail_ranks(game_id),
+                name=f"bridge-match-ranks-{game_id}",
+            )
         except Exception as e:  # noqa: BLE001
             log.exception("match detail failed: %s", e)
             await self._publish_match_detail({"error": str(e), "gameId": game_id})
             self.errorOccurred.emit(str(e))
+
+    async def _enrich_match_detail_ranks(self, game_id: int) -> None:
+        detail = self._match_detail_cache.get(game_id)
+        if not detail or detail.get("_ranks_loaded"):
+            return
+        participants = detail.get("participants") or []
+        with_puuid = sum(1 for p in participants if p.get("puuid"))
+        with_sid = sum(1 for p in participants if int(p.get("summonerId") or 0) > 0)
+        log.info(
+            "match_detail rank-enrich start game=%s participants=%s with_puuid=%s with_summonerId=%s",
+            game_id, len(participants), with_puuid, with_sid,
+        )
+        # Resolve a puuid for every participant. TENCENT match-history payloads
+        # often omit puuid and only carry summonerId, in which case we need an
+        # extra hop through summoner_by_id before we can hit ranked-stats.
+        missing: list[tuple[dict, int]] = [
+            (p, int(p.get("summonerId") or 0))
+            for p in participants
+            if not p.get("puuid") and int(p.get("summonerId") or 0) > 0
+        ]
+        if missing:
+            results = await asyncio.gather(
+                *[api.summoner_by_id(self._client, sid) for _, sid in missing],
+                return_exceptions=True,
+            )
+            for (p, _), s in zip(missing, results):
+                if isinstance(s, dict) and s.get("puuid"):
+                    p["puuid"] = s["puuid"]
+        seen: set[str] = set()
+        puuids: list[str] = []
+        for p in participants:
+            puuid = p.get("puuid")
+            if puuid and puuid not in seen:
+                seen.add(puuid)
+                puuids.append(puuid)
+        if not puuids:
+            log.info("match_detail ranks game=%s: no puuids resolvable", game_id)
+            detail["_ranks_loaded"] = True
+            return
+        to_fetch = [p for p in puuids if p not in self._rank_cache]
+        ok = 0
+        err = 0
+        sample_dumped = False
+        if to_fetch:
+            results = await asyncio.gather(
+                *[api.ranked_stats(self._client, p) for p in to_fetch],
+                return_exceptions=True,
+            )
+            for puuid, raw in zip(to_fetch, results):
+                if isinstance(raw, dict):
+                    if not sample_dumped:
+                        # One-shot dump so we can see if LCU on this patch
+                        # uses queueMap, queues, or some other shape.
+                        log.info("ranked_stats sample shape keys=%s", list(raw.keys()))
+                        sample_dumped = True
+                    primary = self._primary_rank(raw)
+                    self._rank_cache[puuid] = primary or {}
+                    if primary:
+                        ok += 1
+                else:
+                    log.warning("ranked_stats fetch failed for %s: %r", puuid[:8], raw)
+                    self._rank_cache[puuid] = {}
+                    err += 1
+        for p in participants:
+            rank = self._rank_cache.get(p.get("puuid") or "")
+            if rank:
+                p["rank"] = rank
+        detail["_ranks_loaded"] = True
+        log.info(
+            "match_detail ranks game=%s participants=%s puuids=%s fetched=%s ranked=%s errors=%s",
+            game_id, len(participants), len(puuids), len(to_fetch), ok, err,
+        )
+        # Re-cache (LRU bump) + re-emit if the user is still on this detail
+        self._cache_match_detail(game_id, detail)
+        if int((self._match_detail or {}).get("gameId") or 0) == game_id:
+            self._match_detail = detail
+            self.matchDetailChanged.emit()
+
+    @staticmethod
+    def _primary_rank(raw: dict) -> dict | None:
+        # LCU returns ranks in either of two shapes depending on the endpoint
+        # / patch: `queues` (array) for the current user's stats, `queueMap`
+        # (dict) for other puuids. Seraphine / rank-analysis both observe the
+        # dict shape on per-puuid lookups, so we accept both.
+        preferred = ("RANKED_SOLO_5x5", "RANKED_FLEX_SR")
+        queue_map = raw.get("queueMap")
+        if isinstance(queue_map, dict):
+            for queue_type in preferred:
+                q = queue_map.get(queue_type)
+                if isinstance(q, dict) and q.get("tier"):
+                    return {
+                        "tier": q.get("tier"),
+                        "division": "" if q.get("division") in (None, "NA") else q.get("division"),
+                        "leaguePoints": q.get("leaguePoints", 0) or 0,
+                        "queueType": queue_type,
+                    }
+        queues = raw.get("queues") or []
+        for queue_type in preferred:
+            q = next(
+                (q for q in queues if q.get("queueType") == queue_type and q.get("tier")),
+                None,
+            )
+            if q:
+                division = q.get("division") or q.get("rank") or ""
+                if division == "NA":
+                    division = ""
+                return {
+                    "tier": q.get("tier"),
+                    "division": division,
+                    "leaguePoints": q.get("leaguePoints", 0) or 0,
+                    "queueType": queue_type,
+                }
+        return None
 
     def _set_match_detail_loading(self, game_id: int) -> None:
         try:
@@ -935,6 +1220,7 @@ class LcuBridge(QObject):
         request_seq: int,
         preload_seq: int,
     ) -> None:
+        started_at = time.perf_counter()
         sem = asyncio.Semaphore(MATCH_DETAIL_PRELOAD_CONCURRENCY)
 
         async def one(gid: int, warm_icons: bool) -> None:
@@ -969,6 +1255,12 @@ class LcuBridge(QObject):
                 for idx, gid in enumerate(game_ids)
             )
         )
+        log.info(
+            "perf match_detail_preload count=%s concurrency=%s total_ms=%s",
+            len(game_ids),
+            MATCH_DETAIL_PRELOAD_CONCURRENCY,
+            self._perf_ms(started_at),
+        )
 
     async def _get_projected_match_detail(self, game_id: int) -> dict[str, Any]:
         cached = self._match_detail_cache.get(game_id)
@@ -989,9 +1281,21 @@ class LcuBridge(QObject):
                 self._match_detail_inflight.pop(game_id, None)
 
     async def _fetch_projected_match_detail(self, game_id: int) -> dict[str, Any]:
+        started_at = time.perf_counter()
         g = await api.game_detail(self._client, game_id)
+        fetch_ms = self._perf_ms(started_at)
+        project_started_at = time.perf_counter()
         projected = self._project_match_detail(g)
+        project_ms = self._perf_ms(project_started_at)
         self._cache_match_detail(game_id, projected)
+        log.info(
+            "perf match_detail game_id=%s participants=%s fetch_ms=%s project_ms=%s total_ms=%s",
+            game_id,
+            len(projected.get("participants") or []),
+            fetch_ms,
+            project_ms,
+            self._perf_ms(started_at),
+        )
         return projected
 
     def _cache_match_detail(self, game_id: int, detail: dict[str, Any]) -> None:
@@ -1727,8 +2031,11 @@ class LcuBridge(QObject):
         await self._refresh_champ_select_from(session)
 
     async def _refresh_champ_select_from(self, session: dict) -> None:
+        started_at = time.perf_counter()
         try:
+            snapshot_started_at = time.perf_counter()
             snap: ChampSelectSnapshot = await snapshot_session(self._client, session)
+            snapshot_ms = self._perf_ms(snapshot_started_at)
             data = snap.to_dict()
             # Compute pre-groups across all visible players.
             all_players = [*data.get("myTeam", []), *data.get("theirTeam", [])]
@@ -1738,42 +2045,121 @@ class LcuBridge(QObject):
                 for m in p.get("recent") or []:
                     m["teamId"] = p.get("team_id") or 0
             try:
+                pregroup_started_at = time.perf_counter()
                 groups = detect_pregroups(all_players)
+                pregroup_ms = self._perf_ms(pregroup_started_at)
                 data["preGroups"] = [
                     {"puuids": g.puuids, "gamesSameTeam": g.games_same_team, "color": g.color}
                     for g in groups
                 ]
             except Exception as e:  # noqa: BLE001
+                pregroup_ms = 0
                 log.warning("pregroup detect failed: %s", e)
                 data["preGroups"] = []
             self._champ_select = data
             self.champSelectChanged.emit()
             self._spawn(self._maybe_send_team_winrates(data), name="bridge-team-winrates")
+            log.info(
+                "perf champ_select game_id=%s players=%s groups=%s snapshot_ms=%s "
+                "pregroup_ms=%s total_ms=%s",
+                data.get("gameId") or 0,
+                len(all_players),
+                len(data.get("preGroups") or []),
+                snapshot_ms,
+                pregroup_ms,
+                self._perf_ms(started_at),
+            )
         except Exception as e:  # noqa: BLE001
             log.exception("champ select snapshot failed: %s", e)
 
     async def _maybe_send_team_winrates(self, data: dict[str, Any]) -> None:
-        if not self._settings.auto_actions.send_team_winrate or not self._client.is_connected():
+        log.info(
+            "team-winrate check: enabled=%s connected=%s myTeam=%s",
+            self._settings.auto_actions.send_team_winrate,
+            self._client.is_connected(),
+            len(data.get("myTeam") or []),
+        )
+        if not self._settings.auto_actions.send_team_winrate:
             return
-        game_id = int(data.get("gameId") or 0)
-        if game_id <= 0 or game_id in self._winrate_sent_game_ids:
+        if not self._client.is_connected():
+            log.info("team-winrate skip: lcu not connected")
             return
-        teammates = [
-            p for p in (data.get("myTeam") or [])
-            if isinstance(p, dict) and not p.get("is_me") and not p.get("isMe")
-        ]
-        lines: list[str] = []
-        for p in teammates:
-            name = p.get("display_name") or p.get("displayName") or "队友"
-            rate = p.get("recent_win_rate", p.get("recentWinRate", 0))
-            recent = p.get("recent") or []
-            if recent:
-                lines.append(f"{name}: 近{len(recent)}场 {round(float(rate) * 100)}%")
-            else:
-                lines.append(f"{name}: 无最近战绩")
+        my_team_all = [p for p in (data.get("myTeam") or []) if isinstance(p, dict)]
+        # Fingerprint covers the whole composition (including me) so we resend
+        # if anyone swaps. gameId is 0 in champ select on some patches.
+        puuids = sorted(p.get("puuid") or "" for p in my_team_all if p.get("puuid"))
+        if not puuids:
+            log.info(
+                "team-winrate skip: no puuids yet (myTeam=%s)",
+                len(my_team_all),
+            )
+            return
+        fingerprint = "|".join(puuids)
+        if fingerprint in self._winrate_sent_fingerprints:
+            return
+        # Sort: me first, then alphabetical for stability.
+        my_team_all.sort(key=lambda p: (0 if (p.get("is_me") or p.get("isMe")) else 1,
+                                        p.get("display_name") or ""))
+        lines = self._format_winrate_lines(my_team_all)
         if not lines:
             return
-        message = "队友胜率 | " + " | ".join(lines)
+        message = "我方近期胜率：\n" + "\n".join(lines)
+        try:
+            conversations = await api.chat_conversations(self._client)
+            # Surface what conversation types are actually present so we can
+            # match a new shape if Riot ever renames "championSelect".
+            types_seen = [
+                (c.get("id"), c.get("type"))
+                for c in conversations or []
+                if isinstance(c, dict)
+            ]
+            conversation = next(
+                (
+                    c for c in conversations or []
+                    if isinstance(c, dict)
+                    and (
+                        str(c.get("type", "")).lower() in ("championselect", "champion-select")
+                        or "champion-select" in str(c.get("id", "")).lower()
+                        or "champ-select" in str(c.get("id", "")).lower()
+                    )
+                ),
+                None,
+            )
+            if not conversation:
+                log.info("team-winrate: no champ-select conversation yet, types=%s", types_seen)
+                return
+            conversation_id = conversation.get("id") or ""
+            if not conversation_id:
+                log.info("team-winrate: conversation missing id, conv=%s", conversation)
+                return
+            log.info("team-winrate sending via %s msg=%s", conversation_id, message)
+            await api.send_chat_message(self._client, str(conversation_id), message)
+            self._winrate_sent_fingerprints.add(fingerprint)
+            self.notify.emit("选人胜率", "已发送队友最近战绩胜率")
+        except Exception as e:  # noqa: BLE001
+            log.warning("send team winrates failed: %s", e)
+
+    async def _send_all_winrates(self) -> None:
+        if not self._client.is_connected():
+            self.notify.emit("发送胜率", "未连接客户端")
+            return
+        # Prefer the live champ-select snapshot (both teams visible). Fall
+        # back to the frozen in-game snapshot so the user can still trigger
+        # this once the game has started.
+        snapshot = self._champ_select or self._in_game or {}
+        my_team = [p for p in (snapshot.get("myTeam") or []) if isinstance(p, dict)]
+        their_team = [p for p in (snapshot.get("theirTeam") or []) if isinstance(p, dict)]
+        if not my_team and not their_team:
+            self.notify.emit("发送胜率", "未在选人/对局中，没有可发送的玩家")
+            return
+        # me first within my team, alphabetical otherwise
+        my_team.sort(key=lambda p: (0 if (p.get("is_me") or p.get("isMe")) else 1,
+                                    p.get("display_name") or ""))
+        ally_lines = self._format_winrate_lines(my_team)
+        enemy_lines = self._format_winrate_lines(their_team)
+        if not ally_lines and not enemy_lines:
+            self.notify.emit("发送胜率", "暂无可统计的对手/队友数据")
+            return
         try:
             conversations = await api.chat_conversations(self._client)
             conversation = next(
@@ -1782,17 +2168,54 @@ class LcuBridge(QObject):
                     if isinstance(c, dict)
                     and (
                         str(c.get("type", "")).lower() in ("championselect", "champion-select")
-                        or "champion" in str(c.get("id", "")).lower()
+                        or "champion-select" in str(c.get("id", "")).lower()
+                        or "champ-select" in str(c.get("id", "")).lower()
                     )
                 ),
                 None,
             )
-            conversation_id = (conversation or {}).get("id") or "championSelect"
-            await api.send_chat_message(self._client, str(conversation_id), message)
-            self._winrate_sent_game_ids.add(game_id)
-            self.notify.emit("选人胜率", "已发送队友最近战绩胜率")
+            if not conversation:
+                self.notify.emit("发送胜率", "未找到选人聊天会话")
+                return
+            conversation_id = str(conversation.get("id") or "")
+            if not conversation_id:
+                self.notify.emit("发送胜率", "聊天会话缺少 id")
+                return
+            sent = 0
+            if ally_lines:
+                await api.send_chat_message(
+                    self._client, conversation_id, "我方近期胜率：\n" + "\n".join(ally_lines)
+                )
+                sent += 1
+            if enemy_lines:
+                await api.send_chat_message(
+                    self._client, conversation_id, "敌方近期胜率：\n" + "\n".join(enemy_lines)
+                )
+                sent += 1
+            self.notify.emit("发送胜率", f"已发送 {sent} 条")
         except Exception as e:  # noqa: BLE001
-            log.warning("send team winrates failed: %s", e)
+            log.warning("send all winrates failed: %s", e)
+            self.notify.emit("发送胜率", f"失败: {e}")
+
+    @staticmethod
+    def _format_winrate_lines(players: list[dict]) -> list[str]:
+        out: list[str] = []
+        for p in players:
+            name = p.get("display_name") or p.get("displayName") or "?"
+            if name == "???":
+                continue
+            rate = p.get("recent_win_rate", p.get("recentWinRate", 0))
+            recent = p.get("recent") or []
+            if recent:
+                wins = sum(1 for m in recent if m.get("win"))
+                line = (
+                    f"{name} - 近{len(recent)}场 "
+                    f"{round(float(rate) * 100)}% ({wins}胜{len(recent) - wins}负)"
+                )
+            else:
+                line = f"{name} - 无近期战绩"
+            out.append(line)
+        return out
 
     # ----- new fetchers -----
 
@@ -1876,6 +2299,9 @@ class LcuBridge(QObject):
     async def _load_champion_pool(self, count: int) -> None:
         if not self._client.is_connected():
             return
+        started_at = time.perf_counter()
+        fetch_ms = 0
+        aggregate_ms = 0
         try:
             puuid: str = (self._summoner or {}).get("puuid") or ""
             if not puuid:
@@ -1883,6 +2309,7 @@ class LcuBridge(QObject):
                 puuid = me["puuid"]
             # Match history endpoint paginates at 20 per request — fetch in chunks.
             games: list[dict[str, Any]] = []
+            fetch_started_at = time.perf_counter()
             for begin in range(0, count, 20):
                 end = min(begin + 19, count - 1)
                 chunk = await api.match_history(self._client, puuid, begin, end)
@@ -1892,8 +2319,21 @@ class LcuBridge(QObject):
                 games.extend(batch)
                 if len(batch) < (end - begin + 1):
                     break
+            fetch_ms = self._perf_ms(fetch_started_at)
+            aggregate_started_at = time.perf_counter()
             self._champion_pool = [s.to_dict() for s in aggregate_champions(games)]
+            aggregate_ms = self._perf_ms(aggregate_started_at)
             self.championPoolChanged.emit()
+            log.info(
+                "perf champion_pool requested=%s games=%s champions=%s fetch_ms=%s "
+                "aggregate_ms=%s total_ms=%s",
+                count,
+                len(games),
+                len(self._champion_pool),
+                fetch_ms,
+                aggregate_ms,
+                self._perf_ms(started_at),
+            )
         except Exception as e:  # noqa: BLE001
             log.warning("champion pool failed: %s", e)
             self.errorOccurred.emit(str(e))
@@ -1901,12 +2341,18 @@ class LcuBridge(QObject):
     async def _load_teammates(self, count: int) -> None:
         if not self._client.is_connected():
             return
+        started_at = time.perf_counter()
+        history_ms = 0
+        details_ms = 0
+        aggregate_ms = 0
+        profile_ms = 0
         try:
             puuid: str = (self._summoner or {}).get("puuid") or ""
             if not puuid:
                 me = await api.current_summoner(self._client)
                 puuid = me["puuid"]
             games: list[dict[str, Any]] = []
+            history_started_at = time.perf_counter()
             for begin in range(0, count, 20):
                 end = min(begin + 19, count - 1)
                 chunk = await api.match_history(self._client, puuid, begin, end)
@@ -1916,6 +2362,7 @@ class LcuBridge(QObject):
                 games.extend(batch)
                 if len(batch) < (end - begin + 1):
                     break
+            history_ms = self._perf_ms(history_started_at)
             game_ids = [g.get("gameId") for g in games if g.get("gameId")]
             # Fetch details with bounded concurrency.
             sem = asyncio.Semaphore(5)
@@ -1927,10 +2374,15 @@ class LcuBridge(QObject):
                     except Exception:  # noqa: BLE001
                         return None
 
+            details_started_at = time.perf_counter()
             details = await asyncio.gather(*(one(gid) for gid in game_ids))
             details = [d for d in details if d]
+            details_ms = self._perf_ms(details_started_at)
+            aggregate_started_at = time.perf_counter()
             teammates = aggregate_teammates(details, puuid)
+            aggregate_ms = self._perf_ms(aggregate_started_at)
             if teammates:
+                profile_started_at = time.perf_counter()
                 summary_by_puuid: dict[str, dict[str, Any]] = {}
                 teammate_puuids = [t.puuid for t in teammates if t.puuid]
                 for start in range(0, len(teammate_puuids), 50):
@@ -1970,6 +2422,7 @@ class LcuBridge(QObject):
                     for resolved_puuid, summary in resolved_profiles:
                         if summary:
                             summary_by_puuid[resolved_puuid] = summary
+                profile_ms = self._perf_ms(profile_started_at)
                 for teammate in teammates:
                     summary = summary_by_puuid.get(teammate.puuid) or {}
                     teammate.profile_icon_id = int(summary.get("profileIconId") or 0)
@@ -1980,6 +2433,19 @@ class LcuBridge(QObject):
                         teammate.display_name = f"{game_name}#{tag_line}" if tag_line else game_name
             self._teammates = [t.to_dict() for t in teammates]
             self.teammatesChanged.emit()
+            log.info(
+                "perf teammates requested=%s games=%s details=%s teammates=%s "
+                "history_ms=%s details_ms=%s aggregate_ms=%s profile_ms=%s total_ms=%s",
+                count,
+                len(games),
+                len(details),
+                len(self._teammates),
+                history_ms,
+                details_ms,
+                aggregate_ms,
+                profile_ms,
+                self._perf_ms(started_at),
+            )
         except Exception as e:  # noqa: BLE001
             log.warning("teammates failed: %s", e)
             self.errorOccurred.emit(str(e))
@@ -2147,18 +2613,52 @@ class LcuBridge(QObject):
         else:
             self._queues_by_id = {}
 
+        self._game_data_rev += 1
         self.gameDataChanged.emit()
         self.championsChanged.emit()
 
+    def _resolve_opgg_alias(self, query: str) -> str | None:
+        """Map a user-entered champion string (中文 / English / partial) to
+        the English alias OP.GG uses in its URL slugs. Returns None when no
+        confident match is found — caller will fall back to the raw input."""
+        if not query:
+            return None
+        q = query.strip().lower()
+        if not q:
+            return None
+        # 1) exact match on alias — already in the right form
+        for c in self._champions:
+            alias = (c.get("alias") or "").lower()
+            if alias == q:
+                return c.get("alias")
+        # 2) exact match on display name (Chinese on TENCENT)
+        for c in self._champions:
+            if (c.get("name") or "") == query.strip():
+                return c.get("alias") or c.get("name")
+        # 3) substring match — name or alias contains the query
+        for c in self._champions:
+            name = c.get("name") or ""
+            alias = (c.get("alias") or "").lower()
+            if q in alias or q in name.lower():
+                return c.get("alias") or c.get("name")
+        return None
+
     async def _load_opgg(self, champion: str, mode: str, position: str) -> None:
         try:
+            # OP.GG slugs are English aliases ("yasuo"), so a Chinese name like
+            # "疾风剑豪" must be mapped through the champion table first.
+            lookup_name = self._resolve_opgg_alias(champion) or champion
             build = await opgg.fetch_build(
-                champion,
+                lookup_name,
                 mode=mode or self._settings.opgg.mode,
                 position=position or None,
                 tier=self._settings.opgg.tier,
                 region=self._settings.opgg.region,
             )
+            # Preserve the user-facing name on the result so the QML header
+            # shows "疾风剑豪" rather than "Yasuo" after a successful fetch.
+            if champion and champion != lookup_name:
+                build.champion = champion
             self._opgg_build = {
                 "champion": build.champion,
                 "mode": build.mode,

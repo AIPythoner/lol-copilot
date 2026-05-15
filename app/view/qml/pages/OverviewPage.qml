@@ -48,11 +48,6 @@ FluScrollablePage {
                                 : qsTr("未连接")
                             font: FluTextStyle.Title
                         }
-                        FluText {
-                            visible: Lcu.connected
-                            text: qsTr("阶段：") + (Lcu.phase || "None")
-                            color: FluColors.Grey120
-                        }
                     }
 
                     FluText {
@@ -68,11 +63,6 @@ FluScrollablePage {
                     FluFilledButton {
                         text: qsTr("刷新")
                         onClicked: Lcu.refresh()
-                    }
-                    FluButton {
-                        text: qsTr("加载 100 场英雄池")
-                        enabled: Lcu.connected
-                        onClicked: Lcu.loadChampionPool(100)
                     }
                 }
             }
@@ -96,38 +86,55 @@ FluScrollablePage {
                 model: Lcu.ranked && Lcu.ranked.queues ? Lcu.ranked.queues : []
                 delegate: FluArea {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 112
-                    paddings: 14
+                    Layout.preferredHeight: 160
+                    paddings: 12
 
                     RowLayout {
                         anchors.fill: parent
-                        spacing: 12
+                        spacing: 10
+                        clip: false
 
-                        Image {
-                            Layout.preferredWidth: 60
-                            Layout.preferredHeight: 60
+                        // Layout slot stays moderate so the right-hand text
+                        // column gets enough width; the Image overflows the
+                        // slot vertically/horizontally so the crest visual
+                        // grows without bloating the card too much. CDragon
+                        // emblem PNGs bake in heavy transparent padding
+                        // around the crest, so the source size must be much
+                        // larger than the desired visible size.
+                        Item {
                             Layout.alignment: Qt.AlignVCenter
-                            smooth: true
-                            fillMode: Image.PreserveAspectFit
-                            source: Lcu.tierEmblem(modelData.tier || "UNRANKED")
-                            sourceSize.width: 120
-                            sourceSize.height: 120
+                            Layout.preferredWidth: 130
+                            Layout.preferredHeight: 130
+                            Layout.minimumWidth: 130
+                            Layout.minimumHeight: 130
+                            Image {
+                                anchors.centerIn: parent
+                                width: 280
+                                height: 280
+                                smooth: true
+                                cache: true
+                                fillMode: Image.PreserveAspectFit
+                                source: Lcu.tierEmblem(modelData.tier || "UNRANKED")
+                                sourceSize.width: 560
+                                sourceSize.height: 560
+                            }
                         }
 
                         ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: 2
+                            spacing: 3
                             FluText {
                                 text: _queueLabel(modelData.queueType)
                                 color: FluColors.Grey120
                                 font.pixelSize: 11
                             }
                             FluText {
-                                text: (modelData.tier || "UNRANKED") + " " + (modelData.division || "")
+                                text: _tierLabel(modelData.tier, modelData.division)
                                 font: FluTextStyle.Subtitle
+                                color: _tierColor(modelData.tier)
                             }
                             FluText {
-                                text: (modelData.leaguePoints || 0) + " LP"
+                                text: (modelData.leaguePoints || 0) + qsTr(" 胜点")
                                 color: FluColors.Grey120
                                 font.pixelSize: 12
                             }
@@ -256,9 +263,44 @@ FluScrollablePage {
             case "RANKED_FLEX_SR":  return qsTr("灵活组排")
             case "RANKED_TFT": return qsTr("云顶之弈排位")
             case "RANKED_TFT_DOUBLE_UP": return qsTr("云顶双人")
+            case "RANKED_TFT_TURBO": return qsTr("云顶超玩")
             case "CHERRY": return qsTr("斗魂竞技场")
             default: return q || ""
         }
     }
 
+    function _tierLabel(tier, division) {
+        var t = (tier || "").toUpperCase()
+        var names = {
+            "IRON": "黑铁",
+            "BRONZE": "青铜",
+            "SILVER": "白银",
+            "GOLD": "黄金",
+            "PLATINUM": "白金",
+            "EMERALD": "翡翠",
+            "DIAMOND": "钻石",
+            "MASTER": "大师",
+            "GRANDMASTER": "宗师",
+            "CHALLENGER": "王者",
+        }
+        if (!t || t === "UNRANKED" || t === "NONE") return qsTr("未定级")
+        var label = names[t] || t
+        return division ? label + " " + division : label
+    }
+
+    function _tierColor(tier) {
+        switch ((tier || "").toUpperCase()) {
+            case "IRON": return "#7d6c5e"
+            case "BRONZE": return "#a07048"
+            case "SILVER": return "#9faebd"
+            case "GOLD": return "#d4a04a"
+            case "PLATINUM": return "#5ac8b5"
+            case "EMERALD": return "#3ea04a"
+            case "DIAMOND": return "#4684d4"
+            case "MASTER": return "#b964e0"
+            case "GRANDMASTER": return "#e06c75"
+            case "CHALLENGER": return "#f8d458"
+            default: return FluColors.Grey120
+        }
+    }
 }

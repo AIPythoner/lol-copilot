@@ -7,3 +7,4 @@ psutil>=5.9
 pydantic>=2.6
 selectolax>=0.3.21
 platformdirs>=4.2
+pypinyin>=0.50

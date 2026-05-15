@@ -45,11 +45,13 @@ FluArea {
 
         RowLayout {
             Layout.fillWidth: true
-            FluText { text: qsTr("自动接受对局") }
-            Item { Layout.fillWidth: true }
-            FluToggleSwitch {
+            ColumnLayout {
+                Layout.fillWidth: true
+                FluText { text: qsTr("自动接受对局") }
+            }
+            Toggle {
                 checked: Lcu.settings.auto_actions.auto_accept
-                onClicked: Lcu.updateAutoActions({"auto_accept": checked})
+                onToggled: function(value) { Lcu.updateAutoActions({"auto_accept": value}) }
             }
         }
 
@@ -65,9 +67,9 @@ FluArea {
                     font.pixelSize: 11
                 }
             }
-            FluToggleSwitch {
+            Toggle {
                 checked: Lcu.settings.auto_actions.send_team_winrate
-                onClicked: Lcu.updateAutoActions({"send_team_winrate": checked})
+                onToggled: function(value) { Lcu.updateAutoActions({"send_team_winrate": value}) }
             }
         }
 
@@ -76,11 +78,13 @@ FluArea {
             spacing: 6
             RowLayout {
                 Layout.fillWidth: true
-                FluText { text: qsTr("自动禁用") }
-                Item { Layout.fillWidth: true }
-                FluToggleSwitch {
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    FluText { text: qsTr("自动禁用") }
+                }
+                Toggle {
                     checked: Lcu.settings.auto_actions.auto_ban
-                    onClicked: Lcu.updateAutoActions({"auto_ban": checked})
+                    onToggled: function(value) { Lcu.updateAutoActions({"auto_ban": value}) }
                 }
             }
             ChampionChipRow {
@@ -96,11 +100,13 @@ FluArea {
             spacing: 6
             RowLayout {
                 Layout.fillWidth: true
-                FluText { text: qsTr("自动选择") }
-                Item { Layout.fillWidth: true }
-                FluToggleSwitch {
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    FluText { text: qsTr("自动选择") }
+                }
+                Toggle {
                     checked: Lcu.settings.auto_actions.auto_pick
-                    onClicked: Lcu.updateAutoActions({"auto_pick": checked})
+                    onToggled: function(value) { Lcu.updateAutoActions({"auto_pick": value}) }
                 }
             }
             ChampionChipRow {

@@ -327,6 +327,38 @@ FluScrollablePage {
             }
         }
 
+        // ===== chat broadcasts =====
+        FluArea {
+            Layout.fillWidth: true
+            Layout.preferredHeight: chatCol.implicitHeight + 32
+            paddings: 14
+            ColumnLayout {
+                id: chatCol
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                spacing: 10
+
+                FluText { text: qsTr("聊天广播"); font: FluTextStyle.Subtitle }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 10
+                    FluFilledButton {
+                        text: qsTr("一键发送所有人胜率")
+                        enabled: Lcu.connected
+                        onClicked: Lcu.sendAllWinrates()
+                    }
+                    Item { Layout.fillWidth: true }
+                    FluText {
+                        text: qsTr("把双方近期战绩胜率发到选人聊天")
+                        color: FluColors.Grey120
+                        font.pixelSize: 11
+                    }
+                }
+            }
+        }
+
         AutoActionsPanel {
             Layout.fillWidth: true
         }

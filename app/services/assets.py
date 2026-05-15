@@ -44,6 +44,10 @@ def profile_icon(icon_id: int) -> str:
     return f"{_BE_LOL_GAME_DATA}/v1/profile-icons/{icon_id}.jpg"
 
 
+def item_icon(item_id: int) -> str:
+    return f"{_BE_LOL_GAME_DATA}/v1/items/{item_id}.png"
+
+
 # ----- tier emblems (ranked) -----
 
 _TIER_ALIASES = {

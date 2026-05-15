@@ -19,7 +19,7 @@ class AutoActionSettings:
     auto_accept: bool = False
     auto_ban: bool = False
     auto_pick: bool = False
-    send_team_winrate: bool = False
+    send_team_winrate: bool = True
     ban_priority: list[int] = field(default_factory=list)
     pick_priority: list[int] = field(default_factory=list)
 
@@ -62,6 +62,10 @@ class AppSettings:
     window: WindowGeom = field(default_factory=WindowGeom)
     ai: AiSettings = field(default_factory=AiSettings)
     dark_mode: str = "dark"  # "system" / "light" / "dark"
+    # Bumped whenever we need to migrate older saved settings. Don't roll back
+    # — older clients ignore unknown fields, newer clients use this to decide
+    # whether a one-shot upgrade has already run.
+    schema_version: int = 2
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -85,12 +89,28 @@ class AppSettings:
         dark_mode = raw.get("dark_mode", "dark")
         if dark_mode not in ("dark", "light"):
             dark_mode = "dark"
+        try:
+            schema_version = int(raw.get("schema_version") or 0)
+        except (TypeError, ValueError):
+            schema_version = 0
+        # v2 migration: send_team_winrate was effectively unreachable in v1
+        # (buggy FluToggleSwitch wiring), so we ignore whatever the user has
+        # saved and force the new default on. From v2 onwards the toggle
+        # actually works, so a False value the user explicitly sets sticks.
+        aa_filtered = {
+            k: v
+            for k, v in aa_raw.items()
+            if k in AutoActionSettings.__dataclass_fields__
+        }
+        if schema_version < 2:
+            aa_filtered["send_team_winrate"] = True
         return cls(
-            auto_actions=AutoActionSettings(**{k: v for k, v in aa_raw.items() if k in AutoActionSettings.__dataclass_fields__}),
+            auto_actions=AutoActionSettings(**aa_filtered),
             opgg=OpggSettings(**{k: v for k, v in op_raw.items() if k in OpggSettings.__dataclass_fields__}),
             window=WindowGeom(**{k: v for k, v in wnd_raw.items() if k in WindowGeom.__dataclass_fields__}),
             ai=AiSettings(**{k: v for k, v in ai_raw.items() if k in AiSettings.__dataclass_fields__}),
             dark_mode=dark_mode,
+            schema_version=max(schema_version, 2),
         )
 
 
@@ -107,7 +127,11 @@ def load_settings() -> AppSettings:
     try:
         raw = json.loads(p.read_text(encoding="utf-8"))
         settings = AppSettings.from_dict(raw)
-        if raw.get("dark_mode") != settings.dark_mode:
+        saved_version = int(raw.get("schema_version") or 0)
+        if (
+            raw.get("dark_mode") != settings.dark_mode
+            or saved_version < settings.schema_version
+        ):
             save_settings(settings)
         return settings
     except Exception as e:  # noqa: BLE001

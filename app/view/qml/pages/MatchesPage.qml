@@ -17,9 +17,21 @@ FluScrollablePage {
         function onConnectedChanged() {
             if (Lcu.connected) _refreshIfNeeded()
         }
+        function onMatchesChanged() {
+            if (page.pendingPageIndex >= 0 && filteredMatches.length > page.pendingPageIndex * page.pageSize) {
+                page.pageIndex = page.pendingPageIndex
+                page.pendingPageIndex = -1
+            }
+            if (page.pageIndex > 0 && page.pageIndex >= page.pageCount()) {
+                page.pageIndex = Math.max(0, page.pageCount() - 1)
+            }
+        }
     }
 
-    property int requestedCount: 20
+    property int requestedCount: pageSize
+    property int pageSize: 20
+    property int pageIndex: 0
+    property int pendingPageIndex: -1
     property var filterOptions: [
         { label: qsTr("全部模式"), ids: [] },
         { label: qsTr("单双排"), ids: [420] },
@@ -37,6 +49,9 @@ FluScrollablePage {
         if (!ids || ids.length === 0) return all
         return all.filter(function(m){ return ids.indexOf(m.queueId) >= 0 })
     }
+    property var pagedMatches: filteredMatches.slice(pageIndex * pageSize, (pageIndex + 1) * pageSize)
+
+    onFilterIndexChanged: pageIndex = 0
 
     ColumnLayout {
         width: parent.width
@@ -46,19 +61,24 @@ FluScrollablePage {
             Layout.fillWidth: true
             spacing: 8
             FluFilledButton {
-                text: qsTr("刷新 20 场")
-                onClicked: _refresh(20)
+                text: qsTr("刷新")
+                onClicked: _refresh(pageSize)
                 enabled: Lcu.connected && !Lcu.matchesLoading
             }
             FluButton {
-                text: qsTr("加载 50 场")
-                onClicked: _refresh(50)
+                text: qsTr("上一页")
+                onClicked: _prevPage()
+                enabled: pageIndex > 0 && !Lcu.matchesLoading
+            }
+            FluButton {
+                text: qsTr("下一页")
+                onClicked: _nextPage()
                 enabled: Lcu.connected && !Lcu.matchesLoading
             }
             FluButton {
-                text: qsTr("加载 100 场")
-                onClicked: _refresh(100)
-                enabled: Lcu.connected && !Lcu.matchesLoading
+                text: qsTr("重置")
+                onClicked: _refresh(pageSize)
+                enabled: Lcu.connected && !Lcu.matchesLoading && (Lcu.matches || []).length > 0
             }
             Rectangle { width: 1; height: 24; color: FluColors.Grey120; opacity: 0.3 }
             FluText { text: qsTr("按模式筛选"); color: FluColors.Grey120; font.pixelSize: 12 }
@@ -77,7 +97,7 @@ FluScrollablePage {
         }
 
         Repeater {
-            model: filteredMatches
+            model: pagedMatches
             delegate: MatchCard {
                 match: modelData
                 Layout.fillWidth: true
@@ -86,7 +106,7 @@ FluScrollablePage {
         }
 
         ElegantLoader {
-            visible: Lcu.matchesLoading && filteredMatches.length === 0
+            visible: Lcu.matchesLoading && pagedMatches.length === 0
             Layout.fillWidth: true
             Layout.preferredHeight: Math.max(360, page.height - 150)
             text: qsTr("加载最近战绩…")
@@ -95,7 +115,7 @@ FluScrollablePage {
         }
 
         FluText {
-            visible: !Lcu.matchesLoading && filteredMatches.length === 0
+            visible: !Lcu.matchesLoading && pagedMatches.length === 0
             text: {
                 if (!Lcu.connected) return qsTr("请先连接客户端")
                 if ((Lcu.matches || []).length === 0) return qsTr("暂无数据")
@@ -108,6 +128,8 @@ FluScrollablePage {
 
     function _refresh(count) {
         requestedCount = count
+        pageIndex = 0
+        pendingPageIndex = -1
         if (Lcu.connected) Lcu.refreshMatches(count)
     }
 
@@ -128,7 +150,28 @@ FluScrollablePage {
         if (filterIndex > 0 && all > visible.length) {
             base = base + "  (" + qsTr("过滤自 ") + all + qsTr(" 场") + ")"
         }
+        base = base + "  ·  " + qsTr("第 ") + (pageIndex + 1) + " / " + pageCount() + qsTr(" 页")
         return base
+    }
+
+    function pageCount() {
+        return Math.max(1, Math.ceil(filteredMatches.length / pageSize))
+    }
+
+    function _prevPage() {
+        if (pageIndex > 0) pageIndex--
+    }
+
+    function _nextPage() {
+        var next = pageIndex + 1
+        if (filteredMatches.length > next * pageSize) {
+            pageIndex = next
+            return
+        }
+        if (filterIndex === 0 && Lcu.matchesHasMore) {
+            pendingPageIndex = next
+            Lcu.loadMoreMatches()
+        }
     }
 
     component MatchCard: FluArea {

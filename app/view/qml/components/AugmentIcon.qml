@@ -26,7 +26,10 @@ Item {
     Rectangle {
         anchors.fill: parent
         radius: 4
-        color: FluTheme.dark ? "#1a1a1a" : "#e9e9ef"
+        // Augment icons are designed against a near-black backdrop (the
+        // in-game arena tile), so keep the slot dark even in light mode —
+        // otherwise the icon's anti-aliasing/glow renders almost invisible.
+        color: "#1a1a1a"
         border.color: root.borderColor
         border.width: 2
         clip: true

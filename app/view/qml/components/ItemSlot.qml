@@ -25,8 +25,10 @@ Item {
             smooth: true
             cache: true
             asynchronous: true
-            // reference Lcu.connected/gameData so binding re-evals on state changes
-            source: (Lcu.connected || !Lcu.connected) && root.itemId > 0
+            // Lcu.connected + Lcu.gameDataRev are cheap scalar bindings — both
+            // bump when game data finishes loading, which is what reactivates
+            // this binding without marshalling the 1k-entry items dict.
+            source: Lcu.gameDataRev >= 0 && (Lcu.connected || !Lcu.connected) && root.itemId > 0
                 ? Lcu.itemIcon(root.itemId)
                 : ""
             sourceSize.width: root.size * 2

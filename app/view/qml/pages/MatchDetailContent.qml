@@ -35,6 +35,41 @@ Item {
     implicitWidth: width
     implicitHeight: layout.implicitHeight
 
+    function _tierLabel(tier, division) {
+        var t = (tier || "").toUpperCase()
+        var names = {
+            "IRON": "黑铁",
+            "BRONZE": "青铜",
+            "SILVER": "白银",
+            "GOLD": "黄金",
+            "PLATINUM": "白金",
+            "EMERALD": "翡翠",
+            "DIAMOND": "钻石",
+            "MASTER": "大师",
+            "GRANDMASTER": "宗师",
+            "CHALLENGER": "王者",
+        }
+        if (!t || t === "UNRANKED" || t === "NONE") return qsTr("未定级")
+        var label = names[t] || t
+        return division ? label + " " + division : label
+    }
+
+    function _tierColor(tier) {
+        switch ((tier || "").toUpperCase()) {
+            case "IRON": return "#7d6c5e"
+            case "BRONZE": return "#a07048"
+            case "SILVER": return "#9faebd"
+            case "GOLD": return "#d4a04a"
+            case "PLATINUM": return "#5ac8b5"
+            case "EMERALD": return "#3ea04a"
+            case "DIAMOND": return "#4684d4"
+            case "MASTER": return "#b964e0"
+            case "GRANDMASTER": return "#e06c75"
+            case "CHALLENGER": return "#f8d458"
+            default: return FluColors.Grey120
+        }
+    }
+
     ColumnLayout {
         id: layout
         width: root.width
@@ -299,6 +334,16 @@ Item {
                             Lcu.copyToClipboard(tg.length > 0 ? nm + "#" + tg : nm)
                         }
                     }
+                }
+
+                FluText {
+                    text: participant.rank && participant.rank.tier
+                        ? root._tierLabel(participant.rank.tier, participant.rank.division)
+                        : qsTr("未定级")
+                    color: participant.rank && participant.rank.tier
+                        ? root._tierColor(participant.rank.tier)
+                        : FluColors.Grey120
+                    font.pixelSize: 11
                 }
 
                 FluText {
