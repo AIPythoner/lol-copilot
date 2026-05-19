@@ -43,11 +43,14 @@ FluScrollablePage {
         { label: qsTr("自定义"), ids: [0, 3100, 3110, 3120, 3130, 3140, 3160, 3161, 3200, 3210, 3220, 3230] },
     ]
     property int filterIndex: 0
+    // [PERF] Read Lcu.matches once per change. Every access marshals the
+    // full match list across the Py↔QML boundary — bindings in this file
+    // touched it 5+ times, multiplying that cost on every matchesChanged.
+    readonly property var allMatches: Lcu.matches || []
     property var filteredMatches: {
-        var all = Lcu.matches || []
         var ids = filterOptions[filterIndex].ids
-        if (!ids || ids.length === 0) return all
-        return all.filter(function(m){ return ids.indexOf(m.queueId) >= 0 })
+        if (!ids || ids.length === 0) return allMatches
+        return allMatches.filter(function(m){ return ids.indexOf(m.queueId) >= 0 })
     }
     property var pagedMatches: filteredMatches.slice(pageIndex * pageSize, (pageIndex + 1) * pageSize)
 
@@ -78,7 +81,7 @@ FluScrollablePage {
             FluButton {
                 text: qsTr("重置")
                 onClicked: _refresh(pageSize)
-                enabled: Lcu.connected && !Lcu.matchesLoading && (Lcu.matches || []).length > 0
+                enabled: Lcu.connected && !Lcu.matchesLoading && allMatches.length > 0
             }
             Rectangle { width: 1; height: 24; color: FluColors.Grey120; opacity: 0.3 }
             FluText { text: qsTr("按模式筛选"); color: FluColors.Grey120; font.pixelSize: 12 }
@@ -118,7 +121,7 @@ FluScrollablePage {
             visible: !Lcu.matchesLoading && pagedMatches.length === 0
             text: {
                 if (!Lcu.connected) return qsTr("请先连接客户端")
-                if ((Lcu.matches || []).length === 0) return qsTr("暂无数据")
+                if (allMatches.length === 0) return qsTr("暂无数据")
                 return qsTr("当前筛选无匹配对局，切换到「全部模式」查看完整列表")
             }
             Layout.alignment: Qt.AlignHCenter
@@ -134,14 +137,14 @@ FluScrollablePage {
     }
 
     function _refreshIfNeeded() {
-        if (Lcu.connected && !Lcu.matchesLoading && (Lcu.matches || []).length === 0) {
+        if (Lcu.connected && !Lcu.matchesLoading && allMatches.length === 0) {
             Lcu.refreshMatches(requestedCount)
         }
     }
 
     function _summary() {
         var visible = filteredMatches
-        var all = (Lcu.matches || []).length
+        var all = allMatches.length
         if (visible.length === 0) return ""
         var w = 0
         for (var i = 0; i < visible.length; i++) if (visible[i].win) w++
@@ -180,6 +183,12 @@ FluScrollablePage {
         signal clicked()
         Layout.preferredHeight: 88
         paddings: 0
+
+        // [PERF] Per-row KDA was being computed THREE times — once for the
+        // text, twice inside the color expression (kdaRatio()+parseFloat).
+        // Cache the formatted string and the parsed number once per row.
+        readonly property string kdaText: Fmt.kdaRatio(match.kills||0, match.deaths||0, match.assists||0)
+        readonly property real kdaValue: parseFloat(card.kdaText)
 
         MouseArea {
             anchors.fill: parent
@@ -249,8 +258,8 @@ FluScrollablePage {
                     font.pixelSize: 16
                 }
                 FluText {
-                    text: Fmt.kdaRatio(match.kills||0, match.deaths||0, match.assists||0) + " KDA"
-                    color: Fmt.kdaColor(parseFloat(Fmt.kdaRatio(match.kills||0, match.deaths||0, match.assists||0)))
+                    text: card.kdaText + " KDA"
+                    color: Fmt.kdaColor(card.kdaValue)
                     font.pixelSize: 11
                 }
             }

@@ -13,6 +13,10 @@ FluScrollablePage {
     property string lobbyPassword: ""
     property int profileIconInput: 0
 
+    // [PERF] Read Lcu.summoner once per signal — the profile preview row
+    // below touched it 6 times (icon id, level, name, displayed icon id).
+    readonly property var summoner: Lcu.summoner || ({})
+
     Component.onCompleted: if (Lcu.connected) Lcu.refreshHextech()
     Connections {
         target: Lcu
@@ -128,19 +132,19 @@ FluScrollablePage {
                     Layout.fillWidth: true
                     spacing: 12
                     ProfileIcon {
-                        iconId: (Lcu.summoner && Lcu.summoner.profileIconId) || 0
-                        level: (Lcu.summoner && Lcu.summoner.summonerLevel) || 0
+                        iconId: page.summoner.profileIconId || 0
+                        level: page.summoner.summonerLevel || 0
                         size: 56
                     }
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 2
                         FluText {
-                            text: (Lcu.summoner && (Lcu.summoner.gameName || Lcu.summoner.displayName)) || "-"
+                            text: (page.summoner.gameName || page.summoner.displayName) || "-"
                             font.bold: true
                         }
                         FluText {
-                            text: qsTr("当前头像 ID: ") + ((Lcu.summoner && Lcu.summoner.profileIconId) || "-")
+                            text: qsTr("当前头像 ID: ") + (page.summoner.profileIconId || "-")
                             color: FluColors.Grey120
                             font.pixelSize: 11
                         }
@@ -227,10 +231,13 @@ FluScrollablePage {
 
                 // Shortcut object — we reference hex.wallet, hex.totalChests
                 // etc. instead of chaining through `Lcu.hextech &&` every time.
-                property var hex: Lcu.hextech || {}
-                property var wallet: (Lcu.hextech && Lcu.hextech.wallet) || {}
-                property int redundantBe: (Lcu.hextech && Lcu.hextech.redundantBe) || 0
-                property int redundantCount: (Lcu.hextech && Lcu.hextech.redundantShards && Lcu.hextech.redundantShards.length) || 0
+                // [PERF] All four derived properties now read `hex`, not
+                // `Lcu.hextech`, so hextechChanged triggers a single marshal
+                // instead of four.
+                readonly property var hex: Lcu.hextech || ({})
+                readonly property var wallet: hex.wallet || ({})
+                readonly property int redundantBe: hex.redundantBe || 0
+                readonly property int redundantCount: (hex.redundantShards && hex.redundantShards.length) || 0
 
                 // Wallet row
                 RowLayout {

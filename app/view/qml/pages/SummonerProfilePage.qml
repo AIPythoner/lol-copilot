@@ -254,6 +254,12 @@ FluScrollablePage {
         Layout.preferredHeight: 80
         paddings: 0
 
+        // [PERF] Per-row KDA was being computed three times (text + the
+        // parseFloat() inside the color binding which also called
+        // Fmt.kdaRatio again). Cache once per row.
+        readonly property string kdaText: Fmt.kdaRatio(match.kills||0, match.deaths||0, match.assists||0)
+        readonly property real kdaValue: parseFloat(card.kdaText)
+
         MouseArea {
             anchors.fill: parent
             hoverEnabled: true
@@ -305,8 +311,8 @@ FluScrollablePage {
                     font.pixelSize: 14
                 }
                 FluText {
-                    text: Fmt.kdaRatio(match.kills||0, match.deaths||0, match.assists||0) + " KDA"
-                    color: Fmt.kdaColor(parseFloat(Fmt.kdaRatio(match.kills||0, match.deaths||0, match.assists||0)))
+                    text: card.kdaText + " KDA"
+                    color: Fmt.kdaColor(card.kdaValue)
                     font.pixelSize: 11
                 }
             }

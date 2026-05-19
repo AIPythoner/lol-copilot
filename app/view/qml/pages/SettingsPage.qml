@@ -11,6 +11,12 @@ FluScrollablePage {
     property var tierModel: ["platinum_plus", "emerald_plus", "diamond_plus", "master_plus"]
     property var regionModel: ["global", "kr", "cn"]
 
+    // [PERF] Lcu.settings is a sizeable dict (window + auto_actions + opgg
+    // + ai). Cache it once so the four bindings below don't re-marshal it
+    // on each settingsChanged.
+    readonly property var settings: Lcu.settings || ({})
+    readonly property var opggPrefs: settings.opgg || ({})
+
     function indexOf(arr, v) {
         for (var i = 0; i < arr.length; i++) if (arr[i] === v) return i
         return 0
@@ -60,7 +66,7 @@ FluScrollablePage {
                     FluComboBox {
                         Layout.preferredWidth: 180
                         model: tierModel
-                        currentIndex: indexOf(tierModel, Lcu.settings.opgg.tier)
+                        currentIndex: indexOf(tierModel, opggPrefs.tier)
                         onActivated: Lcu.updateOpggPrefs({"tier": tierModel[currentIndex]})
                     }
                 }
@@ -72,7 +78,7 @@ FluScrollablePage {
                     FluComboBox {
                         Layout.preferredWidth: 140
                         model: regionModel
-                        currentIndex: indexOf(regionModel, Lcu.settings.opgg.region)
+                        currentIndex: indexOf(regionModel, opggPrefs.region)
                         onActivated: Lcu.updateOpggPrefs({"region": regionModel[currentIndex]})
                     }
                 }

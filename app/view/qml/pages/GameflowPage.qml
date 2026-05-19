@@ -8,6 +8,13 @@ FluScrollablePage {
     launchMode: FluPageType.SingleTask
     title: qsTr("对局")
 
+    // [PERF] Cache Lcu.inGame once per change. It was previously read 6
+    // times per inGameChanged signal, each time deep-copying the whole
+    // dict (10 players × nested ranks/recent arrays).
+    readonly property var game: Lcu.inGame || ({})
+    readonly property var myTeam: game.myTeam || []
+    readonly property var theirTeam: game.theirTeam || []
+
     ColumnLayout {
         width: parent.width
         spacing: 14
@@ -30,11 +37,11 @@ FluScrollablePage {
         FluText {
             text: qsTr("进行中的对局（以选人结算结果为准）")
             font: FluTextStyle.Subtitle
-            visible: Lcu.inGame && (Lcu.inGame.myTeam || []).length > 0
+            visible: myTeam.length > 0
         }
 
         Repeater {
-            model: (Lcu.inGame && Lcu.inGame.myTeam) || []
+            model: myTeam
             delegate: PlayerRow {
                 player: modelData
                 accent: "#4684d4"
@@ -44,11 +51,11 @@ FluScrollablePage {
 
         FluDivider {
             Layout.fillWidth: true
-            visible: Lcu.inGame && (Lcu.inGame.theirTeam || []).length > 0
+            visible: theirTeam.length > 0
         }
 
         Repeater {
-            model: (Lcu.inGame && Lcu.inGame.theirTeam) || []
+            model: theirTeam
             delegate: PlayerRow {
                 player: modelData
                 accent: "#c64343"
@@ -57,7 +64,7 @@ FluScrollablePage {
         }
 
         FluText {
-            visible: !Lcu.inGame || !Lcu.inGame.myTeam || Lcu.inGame.myTeam.length === 0
+            visible: myTeam.length === 0
             text: qsTr("未在对局中。进入对局后此处会保留选人时的阵容信息。")
             color: FluColors.Grey120
             Layout.alignment: Qt.AlignHCenter

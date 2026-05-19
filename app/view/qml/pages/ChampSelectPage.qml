@@ -5,13 +5,27 @@ import FluentUI
 import "../components"
 
 FluScrollablePage {
+    id: page
     launchMode: FluPageType.SingleTask
     title: qsTr("选人分析")
 
     Component.onCompleted: if (Lcu.connected) Lcu.refreshChampSelect()
 
+    // [PERF] Cache Lcu.champSelect once. Originally referenced 12+ times
+    // (status text, bans, preGroups counter, both teams, empty state) —
+    // each access marshalled the whole champSelect dict including bans,
+    // both 5-player rosters, and pregroup data. Caching cuts that to one
+    // marshal per champSelectChanged signal.
+    readonly property var sel: Lcu.champSelect || ({})
+    readonly property var preGroups: sel.preGroups || []
+    readonly property var bansData: sel.bans
+    readonly property var myTeamBans: (bansData && bansData.myTeamBans) || []
+    readonly property var theirTeamBans: (bansData && bansData.theirTeamBans) || []
+    readonly property var myTeam: sel.myTeam || []
+    readonly property var theirTeam: sel.theirTeam || []
+
     function preGroupColor(puuid) {
-        var groups = (Lcu.champSelect && Lcu.champSelect.preGroups) || []
+        var groups = page.preGroups
         for (var i = 0; i < groups.length; i++) {
             if ((groups[i].puuids || []).indexOf(puuid) !== -1) return groups[i].color
         }
@@ -28,14 +42,14 @@ FluScrollablePage {
             FluText {
                 text: Lcu.phase === "ChampSelect"
                     ? qsTr("选人中")
-                      + (Lcu.champSelect.phase ? "  ·  " + Lcu.champSelect.phase : "")
+                      + (sel.phase ? "  ·  " + sel.phase : "")
                     : qsTr("当前不在选人阶段：") + (Lcu.phase || "-")
                 font: FluTextStyle.Subtitle
             }
             Item { Layout.fillWidth: true }
             FluText {
-                visible: Lcu.champSelect.preGroups && Lcu.champSelect.preGroups.length > 0
-                text: qsTr("检测到 ") + ((Lcu.champSelect.preGroups||[]).length) + qsTr(" 个开黑组")
+                visible: preGroups.length > 0
+                text: qsTr("检测到 ") + preGroups.length + qsTr(" 个开黑组")
                 color: "#d4a04a"
                 font.pixelSize: 12
             }
@@ -51,7 +65,7 @@ FluScrollablePage {
             Layout.fillWidth: true
             Layout.preferredHeight: 68
             paddings: 10
-            visible: Lcu.champSelect.bans !== undefined
+            visible: bansData !== undefined
 
             RowLayout {
                 anchors.fill: parent
@@ -62,7 +76,7 @@ FluScrollablePage {
                 RowLayout {
                     spacing: 6
                     Repeater {
-                        model: ((Lcu.champSelect.bans||{}).myTeamBans) || []
+                        model: myTeamBans
                         delegate: BannedChampionIcon { championId: modelData; color: "#4684d4" }
                     }
                 }
@@ -72,7 +86,7 @@ FluScrollablePage {
                 RowLayout {
                     spacing: 6
                     Repeater {
-                        model: ((Lcu.champSelect.bans||{}).theirTeamBans) || []
+                        model: theirTeamBans
                         delegate: BannedChampionIcon { championId: modelData; color: "#c64343" }
                     }
                 }
@@ -96,7 +110,7 @@ FluScrollablePage {
                     color: "#4684d4"
                 }
                 Repeater {
-                    model: (Lcu.champSelect.myTeam || [])
+                    model: myTeam
                     delegate: PlayerCard { player: modelData }
                 }
             }
@@ -111,14 +125,14 @@ FluScrollablePage {
                     color: "#c64343"
                 }
                 Repeater {
-                    model: (Lcu.champSelect.theirTeam || [])
+                    model: theirTeam
                     delegate: PlayerCard { player: modelData }
                 }
             }
         }
 
         FluText {
-            visible: (!Lcu.champSelect.myTeam || Lcu.champSelect.myTeam.length === 0)
+            visible: myTeam.length === 0
             text: Lcu.connected
                 ? qsTr("等待选人会话…")
                 : qsTr("请先连接客户端")

@@ -13,9 +13,15 @@ FluArea {
     property var editingIds: []
     property string pickerFilter: ""
 
+    // [PERF] Cache the settings.auto_actions sub-dict and the champion list
+    // once per signal. The toggles + chip rows below read Lcu.settings 6
+    // times — each one marshals the entire settings dict from Python.
+    readonly property var autoActions: (Lcu.settings && Lcu.settings.auto_actions) || ({})
+    readonly property var champions: Lcu.champions || []
+
     function openPicker(field) {
         editingField = field
-        editingIds = ((Lcu.settings.auto_actions[field]) || []).slice()
+        editingIds = ((autoActions[field]) || []).slice()
         pickerFilter = ""
         pickerDialog.open()
     }
@@ -57,7 +63,7 @@ FluArea {
                 id: autoAcceptToggle
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                checked: Lcu.settings.auto_actions.auto_accept
+                checked: root.autoActions.auto_accept
                 onToggled: function(value) { Lcu.updateAutoActions({"auto_accept": value}) }
             }
         }
@@ -82,7 +88,7 @@ FluArea {
                 id: teamWinrateToggle
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                checked: Lcu.settings.auto_actions.send_team_winrate
+                checked: root.autoActions.send_team_winrate
                 onToggled: function(value) { Lcu.updateAutoActions({"send_team_winrate": value}) }
             }
         }
@@ -104,14 +110,14 @@ FluArea {
                     id: autoBanToggle
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
-                    checked: Lcu.settings.auto_actions.auto_ban
+                    checked: root.autoActions.auto_ban
                     onToggled: function(value) { Lcu.updateAutoActions({"auto_ban": value}) }
                 }
             }
             ChampionChipRow {
                 Layout.fillWidth: true
                 label: qsTr("禁用优先级")
-                ids: Lcu.settings.auto_actions.ban_priority || []
+                ids: root.autoActions.ban_priority || []
                 onEdit: root.openPicker("ban_priority")
             }
         }
@@ -133,14 +139,14 @@ FluArea {
                     id: autoPickToggle
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
-                    checked: Lcu.settings.auto_actions.auto_pick
+                    checked: root.autoActions.auto_pick
                     onToggled: function(value) { Lcu.updateAutoActions({"auto_pick": value}) }
                 }
             }
             ChampionChipRow {
                 Layout.fillWidth: true
                 label: qsTr("选择优先级")
-                ids: Lcu.settings.auto_actions.pick_priority || []
+                ids: root.autoActions.pick_priority || []
                 onEdit: root.openPicker("pick_priority")
             }
         }
@@ -256,7 +262,7 @@ FluArea {
                         Repeater {
                             model: {
                                 var filter = (root.pickerFilter || "").toLowerCase()
-                                var list = (Lcu.champions || []).filter(function(c) {
+                                var list = root.champions.filter(function(c) {
                                     if (!filter) return true
                                     var n = (c.name || "").toLowerCase()
                                     var a = (c.alias || "").toLowerCase()
@@ -288,7 +294,7 @@ FluArea {
                 }
 
                 FluText {
-                    visible: !Lcu.champions || Lcu.champions.length === 0
+                    visible: root.champions.length === 0
                     text: qsTr("英雄列表未加载，请先连接客户端")
                     color: FluColors.Grey120
                 }

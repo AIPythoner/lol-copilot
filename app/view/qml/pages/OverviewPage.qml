@@ -9,6 +9,14 @@ FluScrollablePage {
     launchMode: FluPageType.SingleTask
     title: qsTr("我的生涯")
 
+    // [PERF] Hoist QVariant properties so bindings don't re-marshal big
+    // dicts on every read. The banner alone touched Lcu.summoner 7 times,
+    // each access deep-copying the whole summoner dict.
+    readonly property var summoner: Lcu.summoner || ({})
+    readonly property var ranked: Lcu.ranked || ({})
+    readonly property var rankedQueues: ranked.queues || []
+    readonly property var recentMatches: (Lcu.matches || []).slice(0, 20)
+
     ColumnLayout {
         width: parent.width
         spacing: 16
@@ -24,8 +32,8 @@ FluScrollablePage {
                 spacing: 18
 
                 ProfileIcon {
-                    iconId: (Lcu.summoner && Lcu.summoner.profileIconId) || 0
-                    level: (Lcu.summoner && Lcu.summoner.summonerLevel) || 0
+                    iconId: summoner.profileIconId || 0
+                    level: summoner.summonerLevel || 0
                     size: 84
                     Layout.alignment: Qt.AlignVCenter
                 }
@@ -42,9 +50,9 @@ FluScrollablePage {
                             color: Lcu.connected ? "#3ea04a" : "#c64343"
                         }
                         FluText {
-                            text: Lcu.summoner && (Lcu.summoner.gameName || Lcu.summoner.displayName)
-                                ? (Lcu.summoner.gameName || Lcu.summoner.displayName)
-                                  + (Lcu.summoner.tagLine ? "#" + Lcu.summoner.tagLine : "")
+                            text: (summoner.gameName || summoner.displayName)
+                                ? ((summoner.gameName || summoner.displayName)
+                                   + (summoner.tagLine ? "#" + summoner.tagLine : ""))
                                 : qsTr("未连接")
                             font: FluTextStyle.Title
                         }
@@ -52,7 +60,7 @@ FluScrollablePage {
 
                     FluText {
                         visible: Lcu.connected
-                        text: qsTr("等级 ") + ((Lcu.summoner && Lcu.summoner.summonerLevel) || 0)
+                        text: qsTr("等级 ") + (summoner.summonerLevel || 0)
                         color: FluColors.Grey120
                     }
                 }
@@ -83,7 +91,7 @@ FluScrollablePage {
             visible: Lcu.connected
 
             Repeater {
-                model: Lcu.ranked && Lcu.ranked.queues ? Lcu.ranked.queues : []
+                model: rankedQueues
                 delegate: FluArea {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 160
@@ -152,7 +160,7 @@ FluScrollablePage {
             }
 
             FluArea {
-                visible: !Lcu.ranked || !Lcu.ranked.queues || Lcu.ranked.queues.length === 0
+                visible: rankedQueues.length === 0
                 Layout.fillWidth: true
                 Layout.preferredHeight: 80
                 paddings: 14
@@ -182,7 +190,7 @@ FluScrollablePage {
                 spacing: 4
 
                 Repeater {
-                    model: (Lcu.matches || []).slice(0, 20)
+                    model: recentMatches
                     delegate: ColumnLayout {
                         spacing: 4
                         ChampionIcon {

@@ -1257,12 +1257,19 @@ Item {
         }
         return undefined
     }
+    // Generation counter for async page builds. navigateTop() bumps it so
+    // any in-flight Qt.createComponent callback for a stale URL can detect
+    // that the user already clicked a different sidebar entry and abort
+    // (otherwise the late page would land on top of the current one).
+    property int _navGen: 0
+
     function push(url,argument={}){
         // [PATCH] Normalise url to string. Qt.resolvedUrl() returns a url-typed value
         // (QUrl) while FluPage.url is declared `string`, so `item.url === url` was
         // always false — SingleTask/SingleTop dedup silently broke and every push
         // created a new page. Coerce once up front so every comparison below matches.
         var _urlStr = "" + url
+        var _gen = control._navGen
         function stackPush(){
             var nav_stack = loader_content.item.navStack()
             var nav_stack2 = loader_content.item.navStack2()
@@ -1304,10 +1311,33 @@ Item {
             if(pageIndex!==-1){
                 nav_stack2.currentIndex = pageIndex
                 nav_stack.push(com_placeholder,options)
+                d.stackItems = d.stackItems.concat(nav_list.model[nav_list.currentIndex])
             }else{
-                var comp = Qt.createComponent(url)
-                if (comp.status === Component.Ready) {
+                // [PERF] Asynchronous component creation keeps the GUI thread
+                // responsive: the sidebar click highlights immediately and Qt
+                // builds the QML tree on a worker pass. Without this, a heavy
+                // page (ToolsPage / OpggPage) blocks the main thread for
+                // 100–300ms which the user perceives as click-lag.
+                var comp = Qt.createComponent(url, Component.Asynchronous)
+                function finalize(){
+                    if(comp.status === Component.Error){
+                        console.error(comp.errorString())
+                        return
+                    }
+                    if(comp.status !== Component.Ready){
+                        return
+                    }
+                    if(_gen !== control._navGen){
+                        // User clicked a different sidebar entry while we
+                        // were loading. Discard this build so it doesn't
+                        // stack on top of the current page.
+                        return
+                    }
                     var obj  = comp.createObject(nav_stack,options)
+                    if(!obj){
+                        console.error("createObject failed for",_urlStr)
+                        return
+                    }
                     if(obj.launchMode === FluPageType.SingleInstance){
                         nav_stack.push(com_placeholder,options)
                         nav_stack2.children.push(obj)
@@ -1315,11 +1345,14 @@ Item {
                     }else{
                         nav_stack.push(obj)
                     }
+                    d.stackItems = d.stackItems.concat(nav_list.model[nav_list.currentIndex])
+                }
+                if(comp.status === Component.Ready){
+                    finalize()
                 }else{
-                    console.error(comp.errorString())
+                    comp.statusChanged.connect(finalize)
                 }
             }
-            d.stackItems = d.stackItems.concat(nav_list.model[nav_list.currentIndex])
         }
         function noStackPush(){
             if(loader_content.source.toString() === _urlStr){
@@ -1350,6 +1383,9 @@ Item {
     // loop hangs the GUI thread forever. We snapshot the items first, then
     // clear() the stack in one call, then destroy() them explicitly.
     function navigateTop(url){
+        // Bump generation so any in-flight async page-build for the
+        // previous selection self-cancels in its statusChanged handler.
+        control._navGen += 1
         if(pageMode === FluNavigationViewType.Stack){
             var nav_stack = loader_content.item.navStack()
             var toDestroy = []

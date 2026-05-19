@@ -10,9 +10,14 @@ FluScrollablePage {
     title: qsTr("最近队友")
     property int requestedCount: 30
 
+    // [PERF] Cache Lcu.teammates once per change. It was read 4× per
+    // teammatesChanged signal (maxGames, count badge, Repeater model,
+    // empty state) — each a full deep-copy of up to 50 teammate dicts.
+    readonly property var teammates: Lcu.teammates || []
+
     property int maxGames: {
         var m = 0
-        var list = Lcu.teammates || []
+        var list = teammates
         for (var i = 0; i < list.length; i++)
             if (list[i].gamesTogether > m) m = list[i].gamesTogether
         return Math.max(1, m)
@@ -59,7 +64,7 @@ FluScrollablePage {
                     }
                     Item { Layout.fillWidth: true }
                     FluText {
-                        text: qsTr("共 ") + ((Lcu.teammates || []).length) + qsTr(" 位队友")
+                        text: qsTr("共 ") + teammates.length + qsTr(" 位队友")
                         color: FluColors.Grey120
                         font.pixelSize: 12
                     }
@@ -68,12 +73,12 @@ FluScrollablePage {
         }
 
         Repeater {
-            model: Lcu.teammates || []
+            model: teammates
             delegate: TeammateCard { entry: modelData; Layout.fillWidth: true }
         }
 
         FluText {
-            visible: !Lcu.teammates || Lcu.teammates.length === 0
+            visible: teammates.length === 0
             text: Lcu.connected ? qsTr("请点击按钮开始分析") : qsTr("请先连接客户端")
             Layout.alignment: Qt.AlignHCenter
             color: FluColors.Grey120

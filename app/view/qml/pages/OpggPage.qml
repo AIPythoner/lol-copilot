@@ -13,12 +13,20 @@ FluScrollablePage {
     property var modeModel: ["ranked", "aram", "arena", "urf"]
     property var positionModel: ["auto", "top", "jungle", "mid", "adc", "support"]
 
+    // [PERF] Cache QVariant properties locally so bindings don't repeatedly
+    // marshal big dicts/lists across the Py↔QML boundary. `Lcu.opggBuild`
+    // alone was being touched 10+ times per refresh; each access deep-copies
+    // the entire build dict. Reading it once into `build` collapses that
+    // into a single marshal per opggBuildChanged signal.
+    readonly property var build: Lcu.opggBuild || ({})
+    readonly property var champions: Lcu.champions || []
+
     // build autosuggest data from loaded champions. Each entry carries both
     // the Chinese display name and the English alias plus a lowercased copy
     // so the custom matcher below can match on either field, case-insensitive,
     // and substring-anywhere (e.g. "yas" → Yasuo, "亚" → 亚索).
     property var champSuggestions: {
-        var list = Lcu.champions || []
+        var list = champions
         var out = []
         for (var i = 0; i < list.length; i++) {
             var c = list[i]
@@ -214,7 +222,7 @@ FluScrollablePage {
                 }
 
                 FluText {
-                    visible: !Lcu.champions || Lcu.champions.length === 0
+                    visible: champions.length === 0
                     text: qsTr("提示：需要先连接客户端才能加载英雄列表")
                     color: FluColors.Grey120
                     font.pixelSize: 11
@@ -227,7 +235,7 @@ FluScrollablePage {
             Layout.fillWidth: true
             Layout.preferredHeight: 70
             paddings: 12
-            visible: Lcu.opggBuild && Lcu.opggBuild.champion
+            visible: !!build.champion
 
             RowLayout {
                 anchors.fill: parent
@@ -240,12 +248,12 @@ FluScrollablePage {
                     Layout.fillWidth: true
                     spacing: 2
                     FluText {
-                        text: (Lcu.opggBuild.champion || "") + "  —  " + (Lcu.opggBuild.mode || "")
+                        text: (build.champion || "") + "  —  " + (build.mode || "")
                         font: FluTextStyle.Subtitle
                     }
                     FluText {
-                        text: qsTr("版本 ") + (Lcu.opggBuild.patch || "-")
-                            + (Lcu.opggBuild.position ? "  ·  " + Lcu.opggBuild.position : "")
+                        text: qsTr("版本 ") + (build.patch || "-")
+                            + (build.position ? "  ·  " + build.position : "")
                         color: FluColors.Grey120
                         font.pixelSize: 11
                     }
@@ -253,10 +261,8 @@ FluScrollablePage {
                 FluFilledButton {
                     text: qsTr("应用符文页到客户端")
                     enabled: Lcu.connected
-                        && Lcu.opggBuild
-                        && Lcu.opggBuild.variants
-                        && Lcu.opggBuild.variants.length > 0
-                        && Lcu.opggBuild.variants[0].runePage
+                        && (build.variants || []).length > 0
+                        && build.variants[0].runePage
                     onClicked: Lcu.applyCurrentRunePage()
                 }
             }
@@ -264,12 +270,12 @@ FluScrollablePage {
 
         // ===== build variants =====
         Repeater {
-            model: (Lcu.opggBuild && Lcu.opggBuild.variants) || []
+            model: build.variants || []
             delegate: VariantCard { variant: modelData; Layout.fillWidth: true }
         }
 
         FluText {
-            visible: !Lcu.opggBuild || !Lcu.opggBuild.champion
+            visible: !build.champion
             text: qsTr("选择英雄后点击查询。首次网络请求可能需要 10–15 秒。")
             color: FluColors.Grey120
             Layout.alignment: Qt.AlignHCenter
