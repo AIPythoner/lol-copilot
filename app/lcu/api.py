@@ -172,6 +172,20 @@ async def delete_rune_page(c: LcuClient, page_id: int) -> None:
     await c.delete(f"/lol-perks/v1/pages/{page_id}")
 
 
+# ---------- item sets ----------
+#
+# The LCU /lol-item-sets endpoint uses accountId (NOT summonerId) in both the
+# URL path and the body payload. A PUT replaces the user's full set list, so
+# callers must round-trip the current list and splice their changes in.
+
+async def list_item_sets(c: LcuClient, account_id: int) -> dict:
+    return await c.get(f"/lol-item-sets/v1/item-sets/{account_id}/sets")
+
+
+async def update_item_sets(c: LcuClient, account_id: int, payload: dict) -> Any:
+    return await c.put(f"/lol-item-sets/v1/item-sets/{account_id}/sets", json=payload)
+
+
 # ---------- chat presence ----------
 
 async def my_presence(c: LcuClient) -> dict:

@@ -10,8 +10,48 @@ FluScrollablePage {
 
     property int selectedChampionId: 0
     property string selectedChampionName: ""
-    property var modeModel: ["ranked", "aram", "arena", "urf"]
-    property var positionModel: ["auto", "top", "jungle", "mid", "adc", "support"]
+    // The combos display the localized label (`name`) while the value sent
+    // to OP.GG is the English slug (`value`). Keep them index-aligned.
+    property var modeOptions: [
+        { name: qsTr("排位"), value: "ranked" },
+        { name: qsTr("大乱斗"), value: "aram" },
+        { name: qsTr("斗魂竞技场"), value: "arena" },
+        { name: qsTr("无限火力"), value: "urf" },
+    ]
+    property var positionOptions: [
+        { name: qsTr("自动"), value: "auto" },
+        { name: qsTr("上单"), value: "top" },
+        { name: qsTr("打野"), value: "jungle" },
+        { name: qsTr("中路"), value: "mid" },
+        { name: qsTr("下路"), value: "adc" },
+        { name: qsTr("辅助"), value: "support" },
+    ]
+    property var modeModel: modeOptions.map(function(o) { return o.name })
+    property var positionModel: positionOptions.map(function(o) { return o.name })
+
+    function _modeIndex(value) {
+        for (var i = 0; i < modeOptions.length; i++) {
+            if (modeOptions[i].value === value) return i
+        }
+        return 0
+    }
+    function _positionIndex(value) {
+        for (var i = 0; i < positionOptions.length; i++) {
+            if (positionOptions[i].value === value) return i
+        }
+        return 0
+    }
+
+    Connections {
+        target: Lcu
+        function onOpggAutoFilled(championId, championName, mode, position) {
+            selectedChampionId = championId
+            selectedChampionName = championName
+            champBox.text = championName
+            cbMode.currentIndex = _modeIndex(mode)
+            cbPos.currentIndex = _positionIndex(position || "auto")
+        }
+    }
 
     // [PERF] Cache QVariant properties locally so bindings don't repeatedly
     // marshal big dicts/lists across the Py↔QML boundary. `Lcu.opggBuild`
@@ -215,9 +255,18 @@ FluScrollablePage {
                         enabled: selectedChampionId > 0 || champBox.text.length > 0
                         onClicked: {
                             var name = selectedChampionName || champBox.text
-                            var pos = cbPos.currentIndex === 0 ? "" : positionModel[cbPos.currentIndex]
-                            Lcu.loadOpggBuild(name, modeModel[cbMode.currentIndex], pos)
+                            var posValue = positionOptions[cbPos.currentIndex].value
+                            var pos = posValue === "auto" ? "" : posValue
+                            var modeValue = modeOptions[cbMode.currentIndex].value
+                            Lcu.loadOpggBuild(name, modeValue, pos)
                         }
+                    }
+                    FluButton {
+                        text: qsTr("当前对局")
+                        enabled: Lcu.connected
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("从当前选英雄阶段读取你已选/预选的英雄")
+                        onClicked: Lcu.pickFromChampSelect()
                     }
                 }
 
@@ -257,6 +306,18 @@ FluScrollablePage {
                         color: FluColors.Grey120
                         font.pixelSize: 11
                     }
+                }
+                FluFilledButton {
+                    text: qsTr("应用出装到客户端")
+                    enabled: Lcu.connected
+                        && (build.variants || []).length > 0
+                        && (
+                            (build.variants[0].items_start || []).length
+                            + (build.variants[0].items_boots || []).length
+                            + (build.variants[0].items_core || []).length
+                            + (build.variants[0].items_situational || []).length
+                        ) > 0
+                    onClicked: Lcu.applyCurrentItemSet()
                 }
                 FluFilledButton {
                     text: qsTr("应用符文页到客户端")

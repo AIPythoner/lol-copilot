@@ -77,6 +77,10 @@ class LcuBridge(QObject):
     champSelectChanged = Signal()
     matchDetailChanged = Signal()
     opggBuildChanged = Signal()
+    # Emitted when the user clicks "fill from current champ-select pick".
+    # Carries (championId, championName, mode, position) so the QML page can
+    # mirror them onto its input fields before the build fetch resolves.
+    opggAutoFilled = Signal(int, str, str, str)
     championsChanged = Signal()
     gameDataChanged = Signal()
     championPoolChanged = Signal()
@@ -507,6 +511,17 @@ class LcuBridge(QObject):
     @Slot()
     def applyCurrentRunePage(self) -> None:
         self._spawn(self._apply_rune_page())
+
+    @Slot()
+    def applyCurrentItemSet(self) -> None:
+        self._spawn(self._apply_item_set())
+
+    @Slot()
+    def pickFromChampSelect(self) -> None:
+        """Read the local player's current champ-select pick (locked or
+        hovered) and trigger an OP.GG fetch for it. Emits opggAutoFilled so
+        the QML page can mirror the champion+mode onto its input fields."""
+        self._spawn(self._pick_from_champ_select())
 
     # ----- QML-callable slots: summoner / champion pool / teammates -----
 
@@ -2636,33 +2651,39 @@ class LcuBridge(QObject):
         """Map a user-entered champion string (中文 / English / partial) to
         the English alias OP.GG uses in its URL slugs. Returns None when no
         confident match is found — caller will fall back to the raw input."""
+        match = self._resolve_champion_record(query)
+        return (match.get("alias") or match.get("name")) if match else None
+
+    def _resolve_champion_record(self, query: str) -> dict | None:
         if not query:
             return None
         q = query.strip().lower()
         if not q:
             return None
-        # 1) exact match on alias — already in the right form
         for c in self._champions:
-            alias = (c.get("alias") or "").lower()
-            if alias == q:
-                return c.get("alias")
-        # 2) exact match on display name (Chinese on TENCENT)
+            if (c.get("alias") or "").lower() == q:
+                return c
         for c in self._champions:
             if (c.get("name") or "") == query.strip():
-                return c.get("alias") or c.get("name")
-        # 3) substring match — name or alias contains the query
+                return c
         for c in self._champions:
             name = c.get("name") or ""
             alias = (c.get("alias") or "").lower()
             if q in alias or q in name.lower():
-                return c.get("alias") or c.get("name")
+                return c
         return None
 
     async def _load_opgg(self, champion: str, mode: str, position: str) -> None:
         try:
             # OP.GG slugs are English aliases ("yasuo"), so a Chinese name like
             # "疾风剑豪" must be mapped through the champion table first.
-            lookup_name = self._resolve_opgg_alias(champion) or champion
+            champ_record = self._resolve_champion_record(champion)
+            lookup_name = (
+                (champ_record.get("alias") or champ_record.get("name"))
+                if champ_record
+                else None
+            ) or champion
+            champion_id = int(champ_record.get("id")) if champ_record and champ_record.get("id") else 0
             build = await opgg.fetch_build(
                 lookup_name,
                 mode=mode or self._settings.opgg.mode,
@@ -2676,6 +2697,7 @@ class LcuBridge(QObject):
                 build.champion = champion
             self._opgg_build = {
                 "champion": build.champion,
+                "championId": champion_id,
                 "mode": build.mode,
                 "patch": build.patch or "",
                 "position": build.position or "",
@@ -2700,6 +2722,145 @@ class LcuBridge(QObject):
         except Exception as e:  # noqa: BLE001
             log.warning("opgg fetch failed: %s", e)
             self.errorOccurred.emit(f"OP.GG: {e}")
+
+    async def _pick_from_champ_select(self) -> None:
+        try:
+            try:
+                session = await api.champ_select_session(self._client)
+            except LcuError as e:
+                if e.status == 404:
+                    self.errorOccurred.emit("当前不在选英雄阶段")
+                    return
+                raise
+            cell_id = api.champ_select_local_cell(session)
+            my_team = session.get("myTeam") or []
+            me = next(
+                (p for p in my_team if isinstance(p, dict) and p.get("cellId") == cell_id),
+                None,
+            )
+            if not me:
+                self.errorOccurred.emit("无法定位到本人选英雄槽位")
+                return
+            # championId is the locked pick; championPickIntent is the hover.
+            champion_id = int(me.get("championId") or 0) or int(me.get("championPickIntent") or 0)
+            if champion_id <= 0:
+                self.errorOccurred.emit("还没有选定英雄")
+                return
+            champ = self._champions_by_id.get(str(champion_id)) or {}
+            champion_name = champ.get("name") or champ.get("alias") or ""
+            if not champion_name:
+                self.errorOccurred.emit(f"未找到 championId={champion_id} 的英雄数据")
+                return
+
+            position = (me.get("assignedPosition") or "").lower()
+            opgg_pos = {
+                "top": "top",
+                "jungle": "jungle",
+                "middle": "mid",
+                "bottom": "adc",
+                "utility": "support",
+            }.get(position, "")
+
+            mode = "ranked"
+            try:
+                gameflow = await api.gameflow_session(self._client)
+                queue_id = int(
+                    (((gameflow or {}).get("gameData") or {}).get("queue") or {}).get("id") or 0
+                )
+                if queue_id == 450:
+                    mode = "aram"
+                elif queue_id in (1700, 1710):
+                    mode = "arena"
+                elif queue_id in (900, 1010, 1900):
+                    mode = "urf"
+            except LcuError:
+                pass
+
+            self.opggAutoFilled.emit(champion_id, champion_name, mode, opgg_pos)
+            await self._load_opgg(champion_name, mode, opgg_pos)
+        except Exception as e:  # noqa: BLE001
+            log.warning("pick from champ select failed: %s", e)
+            self.errorOccurred.emit(str(e))
+
+    async def _apply_item_set(self) -> None:
+        build = self._opgg_build
+        if not build or not build.get("variants"):
+            self.errorOccurred.emit("No OP.GG build loaded")
+            return
+        v = build["variants"][0]
+        blocks: list[dict] = []
+
+        def _block(label: str, ids: list[int]) -> None:
+            if not ids:
+                return
+            blocks.append({
+                "type": label,
+                "items": [{"id": str(i), "count": 1} for i in ids],
+                "showIfSummonerSpell": "",
+                "hideIfSummonerSpell": "",
+            })
+
+        _block("起始装备 / Starter", v.get("items_start") or [])
+        _block("鞋子 / Boots", v.get("items_boots") or [])
+        _block("核心 / Core", v.get("items_core") or [])
+        _block("情景 / Situational", v.get("items_situational") or [])
+        if not blocks:
+            self.errorOccurred.emit("Loaded build has no items")
+            return
+
+        mode = (build.get("mode") or "ranked").lower()
+        # ARAM lives on map 12; everything else (ranked/urf/arena) renders fine
+        # on map 11 — and "any" makes the set show across modes regardless.
+        map_id = 12 if mode == "aram" else 11
+        champ_id = int(build.get("championId") or 0)
+
+        account_id = int((self._summoner or {}).get("accountId") or 0)
+        if account_id <= 0:
+            try:
+                me = await api.current_summoner(self._client)
+                self._summoner = me
+                account_id = int(me.get("accountId") or 0)
+            except Exception as e:  # noqa: BLE001
+                self.errorOccurred.emit(f"获取召唤师信息失败: {e}")
+                return
+        if account_id <= 0:
+            self.errorOccurred.emit("无法获取账号 ID，无法写入出装")
+            return
+
+        title = f"OPGG {build.get('champion')} - {mode}"
+        new_set = {
+            "title": title,
+            "type": "custom",
+            "map": "any",
+            "mode": "any",
+            "priority": False,
+            "sortrank": 0,
+            "associatedChampions": [champ_id] if champ_id else [],
+            "associatedMaps": [map_id],
+            "blocks": blocks,
+        }
+
+        try:
+            current = await api.list_item_sets(self._client, account_id)
+            sets = list((current or {}).get("itemSets") or [])
+            # Drop only the prior OPGG-authored set for this champion+mode so
+            # ranked and aram (etc.) builds can coexist for the same champion.
+            stale_prefix = title
+            sets = [
+                s for s in sets
+                if not (isinstance(s, dict) and str(s.get("title", "")).startswith(stale_prefix))
+            ]
+            sets.append(new_set)
+            payload = {
+                "accountId": account_id,
+                "itemSets": sets,
+                "timestamp": 0,
+            }
+            await api.update_item_sets(self._client, account_id, payload)
+            self.notify.emit("出装", f"已应用 {build.get('champion')} OP.GG 出装")
+        except Exception as e:  # noqa: BLE001
+            log.warning("apply item set failed: %s", e)
+            self.errorOccurred.emit(str(e))
 
     async def _apply_rune_page(self) -> None:
         build = self._opgg_build
@@ -2726,7 +2887,24 @@ class LcuBridge(QObject):
                 "selectedPerkIds": rp["perks"],
                 "current": True,
             }
-            await api.create_rune_page(self._client, payload)
+            try:
+                await api.create_rune_page(self._client, payload)
+            except LcuError as e:
+                # Account hit the rune-page quota (default 2 + any purchased
+                # via blue essence). Free a slot by deleting the oldest
+                # non-active editable page and retry once.
+                if "Max pages reached" not in str(e):
+                    raise
+                pages = await api.list_rune_pages(self._client) or []
+                candidates = [
+                    p for p in pages
+                    if p.get("isDeletable") and not p.get("current") and not p.get("isActive")
+                ] or [p for p in pages if p.get("isDeletable")]
+                candidates.sort(key=lambda p: p.get("lastModified") or 0)
+                if not candidates:
+                    raise
+                await api.delete_rune_page(self._client, candidates[0]["id"])
+                await api.create_rune_page(self._client, payload)
             self.notify.emit("符文页", f"已应用 {build.get('champion')} OP.GG 符文页")
         except Exception as e:  # noqa: BLE001
             log.warning("apply rune page failed: %s", e)
