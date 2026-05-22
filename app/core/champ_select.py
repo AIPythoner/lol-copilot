@@ -11,7 +11,7 @@ session — we don't re-fetch on every event.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Optional
 
 from app.common.logger import get_logger
@@ -21,6 +21,7 @@ from app.lcu.client import LcuClient
 log = get_logger(__name__)
 
 RECENT_MATCH_COUNT = 20
+PlayerCache = dict[str, "PlayerCard"]
 
 
 @dataclass
@@ -124,12 +125,35 @@ def _project_match(g: dict, puuid: str) -> Optional[MatchSummary]:
     )
 
 
+def _cache_keys(cell: dict) -> list[str]:
+    keys: list[str] = []
+    puuid = cell.get("puuid") or ""
+    summoner_id = cell.get("summonerId") or 0
+    if puuid:
+        keys.append(f"puuid:{puuid}")
+    if summoner_id:
+        keys.append(f"summoner:{summoner_id}")
+    return keys
+
+
+def _with_live_cell(cached: PlayerCard, cell: dict, local_cell_id: Optional[int]) -> PlayerCard:
+    return replace(
+        cached,
+        cell_id=cell.get("cellId", cached.cell_id),
+        team_id=cell.get("team") or cached.team_id,
+        champion_id=cell.get("championId") or cell.get("championPickIntent") or 0,
+        assigned_position=cell.get("assignedPosition") or "",
+        is_me=(cell.get("cellId") == local_cell_id),
+    )
+
+
 async def _load_player(
     client: LcuClient,
     *,
     cell: dict,
     local_cell_id: Optional[int],
     include_enemy_details: bool,
+    player_cache: PlayerCache | None = None,
 ) -> Optional[PlayerCard]:
     summoner_id = cell.get("summonerId") or 0
     puuid = cell.get("puuid") or ""
@@ -145,6 +169,12 @@ async def _load_player(
             champion_id=cell.get("championId") or cell.get("championPickIntent") or 0,
             assigned_position=cell.get("assignedPosition") or "",
         )
+
+    if player_cache is not None:
+        for key in _cache_keys(cell):
+            cached = player_cache.get(key)
+            if cached is not None:
+                return _with_live_cell(cached, cell, local_cell_id)
 
     try:
         summoner = (
@@ -198,6 +228,14 @@ async def _load_player(
             total_a += m.assists
         card.avg_kda = round((total_k + total_a) / max(1, total_d), 2)
 
+    if player_cache is not None:
+        for key in _cache_keys(cell):
+            player_cache[key] = card
+        if card.puuid:
+            player_cache[f"puuid:{card.puuid}"] = card
+        if card.summoner_id:
+            player_cache[f"summoner:{card.summoner_id}"] = card
+
     return card
 
 
@@ -221,13 +259,24 @@ class ChampSelectSnapshot:
         }
 
 
-async def snapshot_session(client: LcuClient, session: dict) -> ChampSelectSnapshot:
+async def snapshot_session(
+    client: LcuClient,
+    session: dict,
+    *,
+    player_cache: PlayerCache | None = None,
+) -> ChampSelectSnapshot:
     my_cells, their_cells = api.split_champ_select_teams(session)
     local_cell_id = api.champ_select_local_cell(session) or -1
 
     tasks = [
         asyncio.create_task(
-            _load_player(client, cell=c, local_cell_id=local_cell_id, include_enemy_details=False)
+            _load_player(
+                client,
+                cell=c,
+                local_cell_id=local_cell_id,
+                include_enemy_details=False,
+                player_cache=player_cache,
+            )
         )
         for c in my_cells + their_cells
     ]

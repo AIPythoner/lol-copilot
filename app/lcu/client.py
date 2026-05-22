@@ -1,6 +1,7 @@
 """Async HTTP client over the LCU self-signed HTTPS endpoint."""
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Optional
 
 import httpx
@@ -10,6 +11,8 @@ from app.common.logger import get_logger
 from app.lcu.connector import LcuCredentials
 
 log = get_logger(__name__)
+
+LCU_MAX_CONCURRENT_REQUESTS = 8
 
 
 class LcuError(RuntimeError):
@@ -35,6 +38,7 @@ class LcuClient:
     def __init__(self) -> None:
         self._client: Optional[httpx.AsyncClient] = None
         self._creds: Optional[LcuCredentials] = None
+        self._request_sem = asyncio.Semaphore(LCU_MAX_CONCURRENT_REQUESTS)
 
     def is_connected(self) -> bool:
         return self._client is not None and self._creds is not None
@@ -82,7 +86,11 @@ class LcuClient:
         raw: bool = False,
     ) -> Any:
         client = self._require()
-        resp = await client.request(method, uri, json=json, params=params)
+        if method.upper() == "GET":
+            async with self._request_sem:
+                resp = await client.request(method, uri, json=json, params=params)
+        else:
+            resp = await client.request(method, uri, json=json, params=params)
         if resp.status_code >= 400:
             try:
                 payload = resp.json()

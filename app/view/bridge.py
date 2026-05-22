@@ -31,7 +31,7 @@ from app.common.config_store import (
 )
 from app.common.logger import get_logger
 from app.core.auto_actions import AutoActions, AutoActionsConfig
-from app.core.champ_select import ChampSelectSnapshot, snapshot_session
+from app.core.champ_select import ChampSelectSnapshot, PlayerCache, snapshot_session
 from app.core.champion_stats import aggregate as aggregate_champions
 from app.core.teammates import aggregate_teammates, detect_pregroups
 from app.core import scoring
@@ -43,12 +43,13 @@ from app.services import aram_buff, assets, opgg
 
 log = get_logger(__name__)
 
-MATCH_DETAIL_PRELOAD_COUNT = 10
-MATCH_DETAIL_PRELOAD_CONCURRENCY = 4
-MATCH_DETAIL_ICON_PRELOAD_COUNT = 4
+MATCH_DETAIL_PRELOAD_COUNT = 3
+MATCH_DETAIL_PRELOAD_CONCURRENCY = 2
+MATCH_DETAIL_ICON_PRELOAD_COUNT = 2
 MATCH_DETAIL_CACHE_LIMIT = 64
 MATCH_DETAIL_MIN_SKELETON_MS = 180
 MATCHES_DEFAULT_PAGE_SIZE = 20
+AI_CHUNK_FLUSH_INTERVAL_SEC = 0.08
 
 AI_SYSTEM_PROMPT = (
     "你是一个 LOL 游戏分析师，擅长分析玩家战绩和给出游戏建议。"
@@ -114,6 +115,11 @@ class LcuBridge(QObject):
         self._matches_has_more: bool = True
         self._ranked: dict[str, Any] = {}
         self._champ_select: dict[str, Any] = {}
+        self._champ_select_player_cache: PlayerCache = {}
+        self._champ_select_last_fingerprint: str = ""
+        self._champ_select_pending_session: dict[str, Any] | None = None
+        self._champ_select_refresh_task: Optional[asyncio.Task] = None
+        self._champ_select_generation: int = 0
         self._match_detail: dict[str, Any] = {}
         self._opgg_build: dict[str, Any] = {}
         self._champions: list[dict[str, Any]] = []
@@ -825,6 +831,10 @@ class LcuBridge(QObject):
             self._set_matches_loading(False)
             self._ranked = {}
             self._champ_select = {}
+            self._champ_select_generation += 1
+            self._champ_select_last_fingerprint = ""
+            self._champ_select_pending_session = None
+            self._champ_select_player_cache.clear()
             self._rank_cache.clear()
             for sig in (
                 self.summonerChanged,
@@ -854,6 +864,11 @@ class LcuBridge(QObject):
                     self._champ_select = {}
                     self.champSelectChanged.emit()
                 if new_phase in ("None", "Lobby"):
+                    self._champ_select_generation += 1
+                    self._champ_select_last_fingerprint = ""
+                    self._champ_select_pending_session = None
+                    self._champ_select_player_cache.clear()
+                if new_phase in ("None", "Lobby"):
                     self._winrate_sent_fingerprints.clear()
                 if new_phase in ("None", "Lobby") and self._in_game:
                     self._in_game = {}
@@ -877,14 +892,17 @@ class LcuBridge(QObject):
 
     async def _on_champ_select_event(self, ev: LcuEvent) -> None:
         if ev.event_type == "Delete":
+            self._champ_select_generation += 1
+            self._champ_select_last_fingerprint = ""
+            self._champ_select_pending_session = None
+            self._champ_select_player_cache.clear()
             if self._champ_select:
                 self._champ_select = {}
                 self.champSelectChanged.emit()
             return
-        # Throttle: only refresh when session composition changes
         if not isinstance(ev.data, dict):
             return
-        await self._refresh_champ_select_from(ev.data)
+        self._queue_champ_select_refresh(ev.data)
 
     # ----- fetchers -----
 
@@ -1756,6 +1774,17 @@ class LcuBridge(QObject):
         }
 
         buffer: list[str] = []
+        emit_buffer: list[str] = []
+        last_emit_at = time.perf_counter()
+
+        def flush_chunks() -> None:
+            nonlocal last_emit_at
+            if not emit_buffer:
+                return
+            on_chunk("".join(emit_buffer))
+            emit_buffer.clear()
+            last_emit_at = time.perf_counter()
+
         # Long timeout on read/stream — completions over slow models can take
         # a while; short connect timeout catches typos in base_url fast.
         timeout = httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=10.0)
@@ -1786,7 +1815,10 @@ class LcuBridge(QObject):
                     piece = delta.get("content") or ""
                     if piece:
                         buffer.append(piece)
-                        on_chunk(piece)
+                        emit_buffer.append(piece)
+                        if time.perf_counter() - last_emit_at >= AI_CHUNK_FLUSH_INTERVAL_SEC:
+                            flush_chunks()
+        flush_chunks()
         return "".join(buffer)
 
     def _build_match_snapshot(self, detail: dict, target_puuid: str = "") -> dict:
@@ -2058,14 +2090,79 @@ class LcuBridge(QObject):
             if e.status == 404:
                 return
             raise
-        await self._refresh_champ_select_from(session)
+        self._queue_champ_select_refresh(session, force=True)
 
-    async def _refresh_champ_select_from(self, session: dict) -> None:
+    @staticmethod
+    def _champ_select_fingerprint(session: dict) -> str:
+        timer = session.get("timer") or {}
+        bans = session.get("bans") or {}
+
+        def cell_key(cell: dict) -> tuple[Any, ...]:
+            return (
+                cell.get("cellId"),
+                cell.get("team"),
+                cell.get("summonerId") or 0,
+                cell.get("puuid") or "",
+                cell.get("championId") or 0,
+                cell.get("championPickIntent") or 0,
+                cell.get("assignedPosition") or "",
+            )
+
+        return json.dumps(
+            {
+                "gameId": session.get("gameId") or 0,
+                "local": session.get("localPlayerCellId"),
+                "phase": timer.get("phase") or session.get("phase") or "",
+                "my": [cell_key(c) for c in (session.get("myTeam") or [])],
+                "their": [cell_key(c) for c in (session.get("theirTeam") or [])],
+                "bans": [
+                    list(bans.get("myTeamBans") or []),
+                    list(bans.get("theirTeamBans") or []),
+                ],
+            },
+            sort_keys=True,
+            ensure_ascii=False,
+        )
+
+    def _queue_champ_select_refresh(self, session: dict, *, force: bool = False) -> None:
+        fingerprint = self._champ_select_fingerprint(session)
+        if not force and fingerprint == self._champ_select_last_fingerprint:
+            return
+        self._champ_select_pending_session = dict(session)
+        if (
+            self._champ_select_refresh_task is None
+            or self._champ_select_refresh_task.done()
+        ):
+            self._champ_select_refresh_task = self._spawn(
+                self._run_champ_select_refresh_loop(),
+                name="bridge-champ-select-refresh",
+            )
+
+    async def _run_champ_select_refresh_loop(self) -> None:
+        generation = self._champ_select_generation
+        while self._champ_select_pending_session is not None:
+            session = self._champ_select_pending_session
+            self._champ_select_pending_session = None
+            fingerprint = self._champ_select_fingerprint(session)
+            if fingerprint == self._champ_select_last_fingerprint:
+                continue
+            await self._refresh_champ_select_from(session, generation=generation)
+            if generation != self._champ_select_generation:
+                return
+            self._champ_select_last_fingerprint = fingerprint
+
+    async def _refresh_champ_select_from(self, session: dict, *, generation: int | None = None) -> None:
         started_at = time.perf_counter()
         try:
             snapshot_started_at = time.perf_counter()
-            snap: ChampSelectSnapshot = await snapshot_session(self._client, session)
+            snap: ChampSelectSnapshot = await snapshot_session(
+                self._client,
+                session,
+                player_cache=self._champ_select_player_cache,
+            )
             snapshot_ms = self._perf_ms(snapshot_started_at)
+            if generation is not None and generation != self._champ_select_generation:
+                return
             data = snap.to_dict()
             # Compute pre-groups across all visible players.
             all_players = [*data.get("myTeam", []), *data.get("theirTeam", [])]
