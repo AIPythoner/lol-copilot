@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -33,6 +34,15 @@ BASE_URL = "https://op.gg"
 RANKED_BUILD_PATH = "/lol/champions/{champ}/build"
 RANKED_RUNES_PATH = "/lol/champions/{champ}/runes"
 MODE_BUILD_PATH = "/lol/modes/{mode}/{champ}/build"
+
+# When OPGG_PROXY_URL is set, fetch_build() goes through the opgg-proxy
+# service on Render instead of hitting op.gg directly. Required for users
+# in mainland China where op.gg is unreachable.
+# See https://github.com/AIPythoner/opgg-proxy.
+_PROXY_URL = os.environ.get("OPGG_PROXY_URL", "").rstrip("/")
+# Shared secret with the proxy. Hardcoded so end-users don't have to
+# configure anything beyond OPGG_PROXY_URL.
+_PROXY_API_KEY = "og_proxy_lolagent_9f4a7b3e2c8d1e6f5a0b9c4d2e7f3a8b"
 
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -107,6 +117,17 @@ async def fetch_build(
     region: str = "global",
     timeout: float = 15.0,
 ) -> ChampionBuild:
+    if _PROXY_URL:
+        # Render free instances cold-start in 30–60s; widen the per-request
+        # timeout so the first call after idle doesn't fail spuriously.
+        return await _fetch_via_proxy(
+            champion,
+            mode=mode,
+            position=position,
+            tier=tier,
+            region=region,
+            timeout=max(timeout, 60.0),
+        )
     slug = _slugify(champion)
     if mode == "ranked":
         build_url = BASE_URL + RANKED_BUILD_PATH.format(champ=slug)
@@ -150,6 +171,68 @@ async def fetch_build(
         variants=variants,
     )
     return build
+
+
+async def _fetch_via_proxy(
+    champion: str,
+    *,
+    mode: str,
+    position: Optional[str],
+    tier: str,
+    region: str,
+    timeout: float,
+) -> ChampionBuild:
+    params: dict[str, str] = {"mode": mode, "tier": tier, "region": region}
+    if position:
+        params["position"] = position
+    headers: dict[str, str] = {"Accept": "application/json"}
+    if _PROXY_API_KEY:
+        headers["X-API-Key"] = _PROXY_API_KEY
+    url = f"{_PROXY_URL}/build/{_slugify(champion)}"
+
+    async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=timeout) as c:
+        resp = await c.get(url, params=params)
+    if resp.status_code != 200:
+        raise OpggError(f"opgg-proxy {resp.status_code}: {resp.text[:200]}")
+    try:
+        data = resp.json()
+    except ValueError as e:
+        raise OpggError(f"opgg-proxy returned non-JSON body: {e}") from e
+
+    variants: list[BuildVariant] = []
+    for v in data.get("variants", []):
+        rp_data = v.get("runePage")
+        rune_page: Optional[RunePage] = None
+        if rp_data:
+            try:
+                rune_page = RunePage(
+                    primary_style_id=int(rp_data["primary"]),
+                    sub_style_id=int(rp_data["sub"]),
+                    selected_perk_ids=[int(p) for p in rp_data["perks"]],
+                )
+            except (KeyError, TypeError, ValueError) as e:
+                log.warning("opgg-proxy: malformed runePage: %s", e)
+        variants.append(
+            BuildVariant(
+                name=v.get("name") or "Most Popular",
+                items_start=[int(i) for i in v.get("items_start", [])],
+                items_core=[int(i) for i in v.get("items_core", [])],
+                items_boots=[int(i) for i in v.get("items_boots", [])],
+                items_situational=[int(i) for i in v.get("items_situational", [])],
+                skill_order=list(v.get("skill_order", [])),
+                summoner_spells=[int(i) for i in v.get("summoner_spells", [])],
+                rune_page=rune_page,
+            )
+        )
+
+    return ChampionBuild(
+        champion=champion,
+        mode=mode,
+        position=position,
+        tier=tier,
+        patch=data.get("patch") or None,
+        variants=variants,
+    )
 
 
 def _extract_blob(html: str) -> str:
