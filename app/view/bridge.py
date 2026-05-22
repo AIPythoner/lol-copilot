@@ -57,6 +57,20 @@ AI_SYSTEM_PROMPT = (
 )
 
 
+def _safe_int(value: Any, default: int = 0) -> int:
+    """Best-effort int coercion that swallows garbage (e.g. friend payloads
+    whose ``icon`` field is the literal string ``"summonerIcon"``)."""
+    if value is None or value == "":
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return default
+
+
 def _qml_to_python(value: Any) -> Any:
     """Convert QML JavaScript objects/arrays passed through QVariant slots."""
     if isinstance(value, QJSValue):
@@ -90,6 +104,10 @@ class LcuBridge(QObject):
     aramBuffsChanged = Signal()
     inGameChanged = Signal()
     hextechChanged = Signal()
+    presenceChanged = Signal()
+    backgroundSkinChanged = Signal()
+    allSkinsChanged = Signal()
+    friendsChanged = Signal()
     settingsChanged = Signal()
     errorOccurred = Signal(str)
     notify = Signal(str, str)  # title, body
@@ -148,6 +166,25 @@ class LcuBridge(QObject):
         self._aram_buffs: list[dict[str, Any]] = []
         self._in_game: dict[str, Any] = {}
         self._hextech: dict[str, Any] = {}
+        # Chat presence (statusMessage + availability) from /lol-chat/v1/me.
+        # Edited live via setStatusMessage / applyAvailability; the UI binds to
+        # this so the displayed signature mirrors the actual client state.
+        self._presence: dict[str, Any] = {}
+        # Current background skin id from /lol-summoner/v1/current-summoner/summoner-profile.
+        # Refreshed alongside summoner on login so the skin picker can highlight
+        # the active selection. setBackgroundSkin updates it optimistically.
+        self._background_skin_id: int = 0
+        # Cached full skin catalog (champion + skin tile path) for the
+        # background-skin picker. Populated on first open and reused across
+        # opens — the inventory endpoint takes ~1s on cold cache.
+        self._all_skins: list[dict[str, Any]] = []
+        self._all_skins_loading: bool = False
+        # Friend snapshot for the friends page. Refreshed on /lol-chat/v1/friends
+        # events; entries carry the game-grouping color (same gameId → same color)
+        # so the UI can highlight premade lobbies at a glance.
+        self._friends: list[dict[str, Any]] = []
+        self._friend_group_colors: dict[str, str] = {}
+        self._friend_color_index: int = 0
         # Session-scoped AI analysis cache, keyed by (gameId, mode, puuid).
         # Matches rank-analysis' sessionStorage strategy — same match replays
         # instantly without re-billing tokens.
@@ -179,6 +216,11 @@ class LcuBridge(QObject):
         self._events.subscribe(api.EVENT_GAMEFLOW_PHASE, self._on_phase_event)
         self._events.subscribe(api.EVENT_CURRENT_SUMMONER, self._on_summoner_event)
         self._events.subscribe(api.EVENT_CHAMP_SELECT, self._on_champ_select_event)
+        # /lol-chat/v1/me carries our own presence (statusMessage / availability).
+        # /lol-chat/v1/friends fires on any friend's presence change — that's
+        # how the premade-grouping colors stay current.
+        self._events.subscribe("/lol-chat/v1/me", self._on_presence_event)
+        self._events.subscribe("/lol-chat/v1/friends", self._on_friends_event)
 
     # ----- lifecycle -----
 
@@ -420,6 +462,26 @@ class LcuBridge(QObject):
     def hextech(self) -> dict:  # type: ignore[override]
         return self._hextech
 
+    @Property("QVariant", notify=presenceChanged)
+    def presence(self) -> dict:  # type: ignore[override]
+        return self._presence
+
+    @Property(int, notify=backgroundSkinChanged)
+    def backgroundSkinId(self) -> int:  # type: ignore[override]
+        return self._background_skin_id
+
+    @Property("QVariant", notify=allSkinsChanged)
+    def allSkins(self) -> list:  # type: ignore[override]
+        return self._all_skins
+
+    @Property(bool, notify=allSkinsChanged)
+    def allSkinsLoading(self) -> bool:  # type: ignore[override]
+        return self._all_skins_loading
+
+    @Property("QVariant", notify=friendsChanged)
+    def friends(self) -> list:  # type: ignore[override]
+        return self._friends
+
     @Property("QVariant", notify=settingsChanged)
     def settings(self) -> dict:  # type: ignore[override]
         return self._settings.to_dict()
@@ -577,7 +639,19 @@ class LcuBridge(QObject):
 
     @Slot(str)
     def setStatusMessage(self, msg: str) -> None:
-        self._spawn(self._safe_call(api.set_status_message(self._client, msg)))
+        self._spawn(self._apply_status_message(msg), name="bridge-set-status")
+
+    @Slot()
+    def refreshPresence(self) -> None:
+        self._spawn(self._load_presence(), name="bridge-presence")
+
+    @Slot()
+    def refreshFriends(self) -> None:
+        self._spawn(self._load_friends(), name="bridge-friends")
+
+    @Slot()
+    def refreshAllSkins(self) -> None:
+        self._spawn(self._load_all_skins(), name="bridge-all-skins")
 
     @Slot(str)
     def copyToClipboard(self, text: str) -> None:
@@ -590,7 +664,7 @@ class LcuBridge(QObject):
 
     @Slot(int)
     def setBackgroundSkin(self, skin_id: int) -> None:
-        self._spawn(self._safe_call(api.set_background_skin(self._client, skin_id)))
+        self._spawn(self._apply_background_skin(int(skin_id)), name="bridge-set-bg-skin")
 
     # ----- QML-callable slots: lobbies -----
 
@@ -836,12 +910,20 @@ class LcuBridge(QObject):
             self._champ_select_pending_session = None
             self._champ_select_player_cache.clear()
             self._rank_cache.clear()
+            self._presence = {}
+            self._background_skin_id = 0
+            self._friends = []
+            self._friend_group_colors.clear()
+            self._friend_color_index = 0
             for sig in (
                 self.summonerChanged,
                 self.phaseChanged,
                 self.matchesChanged,
                 self.rankedChanged,
                 self.champSelectChanged,
+                self.presenceChanged,
+                self.backgroundSkinChanged,
+                self.friendsChanged,
             ):
                 sig.emit()
 
@@ -904,6 +986,32 @@ class LcuBridge(QObject):
             return
         self._queue_champ_select_refresh(ev.data)
 
+    async def _on_presence_event(self, ev: LcuEvent) -> None:
+        if not isinstance(ev.data, dict):
+            return
+        self._presence = {
+            "statusMessage": ev.data.get("statusMessage", "") or "",
+            "availability": ev.data.get("availability", "") or "",
+        }
+        self.presenceChanged.emit()
+
+    # XMPP-routed friend presence updates fire often (every status flicker,
+    # every champ-select tick). Debounce so we don't refresh the friends panel
+    # 50× per second when several friends are loading into a custom game.
+    _FRIENDS_REFRESH_DEBOUNCE_SEC = 0.5
+
+    async def _on_friends_event(self, ev: LcuEvent) -> None:
+        existing = getattr(self, "_friends_refresh_task", None)
+        if existing is not None and not existing.done():
+            return
+        self._friends_refresh_task = self._spawn(
+            self._debounced_friends_refresh(), name="bridge-friends-debounce"
+        )
+
+    async def _debounced_friends_refresh(self) -> None:
+        await asyncio.sleep(self._FRIENDS_REFRESH_DEBOUNCE_SEC)
+        await self._load_friends()
+
     # ----- fetchers -----
 
     async def _refresh_all(self) -> None:
@@ -921,6 +1029,9 @@ class LcuBridge(QObject):
             await asyncio.gather(
                 self._load_matches(20, me.get("puuid")),
                 self._load_ranked(me.get("puuid")),
+                self._load_presence(),
+                self._load_background_skin(),
+                self._load_friends(),
                 return_exceptions=True,
             )
         except NotConnectedError:
@@ -2232,11 +2343,19 @@ class LcuBridge(QObject):
         fingerprint = "|".join(puuids)
         if fingerprint in self._winrate_sent_fingerprints:
             return
+        # Reserve the fingerprint *before* awaiting the chat fetch — every
+        # champ-select WS tick spawns a fresh _maybe_send_team_winrates task,
+        # and without this reservation two ticks could both pass the dedup
+        # check while the first is mid-await and end up sending the same
+        # summary twice. Roll the reservation back on failure so the next tick
+        # can retry.
+        self._winrate_sent_fingerprints.add(fingerprint)
         # Sort: me first, then alphabetical for stability.
         my_team_all.sort(key=lambda p: (0 if (p.get("is_me") or p.get("isMe")) else 1,
                                         p.get("display_name") or ""))
         lines = self._format_winrate_lines(my_team_all)
         if not lines:
+            self._winrate_sent_fingerprints.discard(fingerprint)
             return
         message = "我方近期胜率：\n" + "\n".join(lines)
         try:
@@ -2262,17 +2381,21 @@ class LcuBridge(QObject):
             )
             if not conversation:
                 log.info("team-winrate: no champ-select conversation yet, types=%s", types_seen)
+                # Conversation isn't open yet — release the reservation so the
+                # next tick (after the chat room appears) can retry.
+                self._winrate_sent_fingerprints.discard(fingerprint)
                 return
             conversation_id = conversation.get("id") or ""
             if not conversation_id:
                 log.info("team-winrate: conversation missing id, conv=%s", conversation)
+                self._winrate_sent_fingerprints.discard(fingerprint)
                 return
             log.info("team-winrate sending via %s msg=%s", conversation_id, message)
             await api.send_chat_message(self._client, str(conversation_id), message)
-            self._winrate_sent_fingerprints.add(fingerprint)
             self.notify.emit("选人胜率", "已发送队友最近战绩胜率")
         except Exception as e:  # noqa: BLE001
             log.warning("send team winrates failed: %s", e)
+            self._winrate_sent_fingerprints.discard(fingerprint)
 
     async def _send_all_winrates(self) -> None:
         if not self._client.is_connected():
@@ -3062,3 +3185,265 @@ class LcuBridge(QObject):
         except Exception as e:  # noqa: BLE001
             log.warning("action failed: %s", e)
             self.errorOccurred.emit(str(e))
+
+    # ----- presence (status message) -----
+
+    async def _load_presence(self) -> None:
+        if not self._client.is_connected():
+            return
+        try:
+            data = await api.my_presence(self._client)
+            if not isinstance(data, dict):
+                return
+            self._presence = {
+                "statusMessage": data.get("statusMessage", "") or "",
+                "availability": data.get("availability", "") or "",
+            }
+            self.presenceChanged.emit()
+        except Exception as e:  # noqa: BLE001
+            log.debug("load presence failed: %s", e)
+
+    async def _apply_status_message(self, msg: str) -> None:
+        try:
+            await api.set_status_message(self._client, msg)
+            # Mirror locally so the editor reflects the change without waiting
+            # for the WS event echo (XMPP presence updates can lag ~1s).
+            self._presence = dict(self._presence)
+            self._presence["statusMessage"] = msg
+            self.presenceChanged.emit()
+            self.notify.emit("签名", "已保存")
+        except Exception as e:  # noqa: BLE001
+            log.warning("set status message failed: %s", e)
+            self.errorOccurred.emit(str(e))
+
+    # ----- background skin -----
+
+    async def _load_background_skin(self) -> None:
+        if not self._client.is_connected():
+            return
+        try:
+            profile = await api.my_profile(self._client)
+            skin_id = 0
+            if isinstance(profile, dict):
+                raw = profile.get("backgroundSkinId") or 0
+                try:
+                    skin_id = int(raw)
+                except (TypeError, ValueError):
+                    skin_id = 0
+            if skin_id != self._background_skin_id:
+                self._background_skin_id = skin_id
+                self.backgroundSkinChanged.emit()
+        except Exception as e:  # noqa: BLE001
+            log.debug("load background skin failed: %s", e)
+
+    async def _apply_background_skin(self, skin_id: int) -> None:
+        try:
+            await api.set_background_skin(self._client, skin_id)
+            self._background_skin_id = skin_id
+            self.backgroundSkinChanged.emit()
+            self.notify.emit("生涯背景", f"已应用皮肤 #{skin_id}")
+        except Exception as e:  # noqa: BLE001
+            log.warning("set background skin failed: %s", e)
+            self.errorOccurred.emit(str(e))
+
+    # ----- skin catalog (background-skin picker) -----
+
+    async def _load_all_skins(self) -> None:
+        """Fetch every champion's skin list and project a flat catalog for the
+        background-skin picker.
+
+        Uses ``/lol-champions/v1/inventories/{summonerId}/champions`` (the same
+        endpoint Riot's own client uses) — it returns the *complete* skin set
+        including unowned ones plus chroma-bearing tier skins. We project each
+        into ``{id, name, champion, championId, tilePath}`` so the QML grid
+        can render straight from a single QVariant list.
+        """
+        if not self._client.is_connected():
+            return
+        if self._all_skins_loading:
+            return
+        self._all_skins_loading = True
+        self.allSkinsChanged.emit()
+        try:
+            me = self._summoner or await api.current_summoner(self._client)
+            summoner_id = me.get("summonerId") if isinstance(me, dict) else None
+            if not summoner_id:
+                return
+            inventory = await self._client.get(
+                f"/lol-champions/v1/inventories/{summoner_id}/champions"
+            )
+            if not isinstance(inventory, list):
+                return
+            items: dict[int, dict[str, Any]] = {}
+            for champ in inventory:
+                if not isinstance(champ, dict):
+                    continue
+                champ_name = champ.get("name") or ""
+                champ_id_raw = champ.get("id")
+                try:
+                    champ_id = int(champ_id_raw) if champ_id_raw is not None else 0
+                except (TypeError, ValueError):
+                    champ_id = 0
+                if champ_id <= 0:
+                    continue
+                for skin in champ.get("skins") or []:
+                    if not isinstance(skin, dict):
+                        continue
+                    self._append_skin_item(items, skin, champ_id, champ_name)
+                    for tier in (skin.get("questSkinInfo") or {}).get("tiers") or []:
+                        if not isinstance(tier, dict):
+                            continue
+                        tier_named = dict(tier)
+                        if not tier_named.get("name"):
+                            stage = tier_named.get("stage")
+                            tier_named["name"] = (
+                                f"{skin.get('name', '')} 阶段 {stage}"
+                                if stage is not None
+                                else skin.get("name", "")
+                            )
+                        self._append_skin_item(items, tier_named, champ_id, champ_name)
+            ordered = sorted(
+                items.values(),
+                key=lambda s: (s["champion"], s["id"]),
+            )
+            self._all_skins = ordered
+        except Exception as e:  # noqa: BLE001
+            log.warning("load all skins failed: %s", e)
+            self.errorOccurred.emit(str(e))
+        finally:
+            self._all_skins_loading = False
+            self.allSkinsChanged.emit()
+
+    def _append_skin_item(
+        self,
+        bucket: dict[int, dict[str, Any]],
+        skin: dict[str, Any],
+        champion_id: int,
+        champion_name: str,
+    ) -> None:
+        try:
+            sid = int(skin.get("id") or 0)
+        except (TypeError, ValueError):
+            sid = 0
+        if sid <= 0 or sid in bucket:
+            return
+        tile = (
+            skin.get("tilePath")
+            or skin.get("uncenteredSplashPath")
+            or skin.get("splashPath")
+            or ""
+        )
+        if not tile:
+            return
+        bucket[sid] = {
+            "id": sid,
+            "name": skin.get("name") or "",
+            "championId": champion_id,
+            "champion": champion_name or f"英雄 {champion_id}",
+            "tilePath": self._best_asset_url(tile),
+            "owned": bool((skin.get("ownership") or {}).get("owned")),
+        }
+
+    # ----- friends (premade-group coloring) -----
+
+    # Palette borrowed from sona's friend-smart-group — 16 distinct hues are
+    # enough to handle every concurrent premade we'd realistically render.
+    _FRIEND_GROUP_COLORS = (
+        "#e8a424", "#4a9eff", "#5bbd72", "#e74c3c", "#c084fc", "#f97316",
+        "#14b8a6", "#ec4899", "#8b5cf6", "#06b6d4", "#eab308", "#ef4444",
+        "#22d3ee", "#a3e635", "#fb923c", "#f472b6",
+    )
+
+    def _color_for_game(self, game_id: str) -> str:
+        color = self._friend_group_colors.get(game_id)
+        if color is not None:
+            return color
+        color = self._FRIEND_GROUP_COLORS[
+            self._friend_color_index % len(self._FRIEND_GROUP_COLORS)
+        ]
+        self._friend_group_colors[game_id] = color
+        self._friend_color_index += 1
+        return color
+
+    async def _load_friends(self) -> None:
+        if not self._client.is_connected():
+            return
+        try:
+            friends = await api.friends(self._client)
+            if not isinstance(friends, list):
+                friends = []
+        except Exception as e:  # noqa: BLE001
+            log.debug("load friends failed: %s", e)
+            return
+
+        # First pass: project rows and bucket by gameId for premade detection.
+        rows: list[dict[str, Any]] = []
+        by_game: dict[str, list[int]] = {}
+        for f in friends:
+            if not isinstance(f, dict):
+                continue
+            lol = f.get("lol") or {}
+            availability = f.get("availability") or ""
+            game_status = lol.get("gameStatus") or ""
+            game_id_raw = str(lol.get("gameId") or "")
+            game_id = game_id_raw if game_id_raw and game_id_raw != "0" else ""
+            in_game = bool(
+                game_id
+                and game_status
+                and game_status != "outOfGame"
+                and availability not in ("offline",)
+            )
+            tag = (f.get("gameTag") or f.get("tagLine") or "").strip()
+            display = (
+                f.get("gameName")
+                or f.get("name")
+                or f.get("displayName")
+                or "?"
+            )
+            row = {
+                "puuid": f.get("puuid", "") or "",
+                "name": display,
+                "tag": tag,
+                "availability": availability,
+                "gameStatus": game_status,
+                "gameMode": lol.get("gameMode") or "",
+                "gameQueueType": lol.get("gameQueueType") or "",
+                "gameId": game_id,
+                "inGame": in_game,
+                "iconId": _safe_int(lol.get("iconOverride") or f.get("icon")),
+                "groupColor": "",
+            }
+            rows.append(row)
+            if in_game:
+                by_game.setdefault(game_id, []).append(len(rows) - 1)
+
+        # Second pass: only games shared by 2+ friends get a color.
+        active_game_ids: set[str] = set()
+        for game_id, idxs in by_game.items():
+            if len(idxs) < 2:
+                continue
+            color = self._color_for_game(game_id)
+            for i in idxs:
+                rows[i]["groupColor"] = color
+            active_game_ids.add(game_id)
+
+        # Forget colors for games that have ended so the palette can reuse the
+        # slot when the next premade starts.
+        for stale in [g for g in self._friend_group_colors if g not in active_game_ids]:
+            self._friend_group_colors.pop(stale, None)
+
+        # Sort: in-game (grouped first) → online → away/dnd → offline.
+        def _sort_key(r: dict) -> tuple:
+            avail = r["availability"]
+            order = 4
+            if r["inGame"]:
+                order = 0 if r["groupColor"] else 1
+            elif avail == "chat":
+                order = 2
+            elif avail in ("away", "mobile", "dnd"):
+                order = 3
+            return (order, r["name"].lower())
+
+        rows.sort(key=_sort_key)
+        self._friends = rows
+        self.friendsChanged.emit()

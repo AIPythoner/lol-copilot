@@ -17,3 +17,4 @@ AugmentIcon 1.0 AugmentIcon.qml
 ElegantLoader 1.0 ElegantLoader.qml
 AutoActionsPanel 1.0 AutoActionsPanel.qml
 Toggle 1.0 Toggle.qml
+BackgroundSkinPicker 1.0 BackgroundSkinPicker.qml

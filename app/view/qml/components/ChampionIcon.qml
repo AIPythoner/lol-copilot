@@ -49,5 +49,9 @@ Item {
         id: mouse
         anchors.fill: parent
         hoverEnabled: showTooltip
+        // Tooltip-only — never swallow clicks, otherwise wrapping MouseAreas
+        // (champ-select / match-detail card click → open summoner profile)
+        // fire only when you click between the icons.
+        acceptedButtons: Qt.NoButton
     }
 }

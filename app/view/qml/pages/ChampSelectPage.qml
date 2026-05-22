@@ -193,6 +193,14 @@ FluScrollablePage {
             }
         }
 
+        MouseArea {
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: !!player.puuid ? Qt.PointingHandCursor : Qt.ArrowCursor
+            enabled: !!player.puuid
+            onClicked: Lcu.openSummonerProfileByPuuid(player.puuid)
+        }
+
         RowLayout {
             anchors.fill: parent
             anchors.leftMargin: 14

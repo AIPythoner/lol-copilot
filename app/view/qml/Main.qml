@@ -131,6 +131,12 @@ FluWindow {
                 onTap: nav.navigateTop(url)
             }
             FluPaneItem {
+                title: qsTr("好友")
+                icon: FluentIcons.People
+                url: Qt.resolvedUrl("pages/FriendsPage.qml")
+                onTap: nav.navigateTop(url)
+            }
+            FluPaneItem {
                 title: qsTr("ARAM 增益")
                 icon: FluentIcons.Shield
                 url: Qt.resolvedUrl("pages/AramPage.qml")

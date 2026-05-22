@@ -12,16 +12,40 @@ FluScrollablePage {
     property string lobbyName: ""
     property string lobbyPassword: ""
     property int profileIconInput: 0
+    property string statusMessageDraft: ""
 
     // [PERF] Read Lcu.summoner once per signal — the profile preview row
     // below touched it 6 times (icon id, level, name, displayed icon id).
     readonly property var summoner: Lcu.summoner || ({})
+    readonly property var presence: Lcu.presence || ({})
+    readonly property string currentStatusMessage: presence.statusMessage || ""
 
-    Component.onCompleted: if (Lcu.connected) Lcu.refreshHextech()
+    Component.onCompleted: {
+        if (Lcu.connected) {
+            Lcu.refreshHextech()
+            Lcu.refreshPresence()
+        }
+        statusMessageDraft = currentStatusMessage
+    }
     Connections {
         target: Lcu
-        function onConnectedChanged() { if (Lcu.connected) Lcu.refreshHextech() }
+        function onConnectedChanged() {
+            if (Lcu.connected) {
+                Lcu.refreshHextech()
+                Lcu.refreshPresence()
+            }
+        }
+        function onPresenceChanged() {
+            // Live-sync the editor with the actual client state when the user
+            // hasn't started editing; otherwise we'd clobber their in-progress
+            // typing on every presence echo.
+            if (!page.statusMessageBox || !page.statusMessageBox.activeFocus) {
+                page.statusMessageDraft = page.currentStatusMessage
+            }
+        }
     }
+
+    property var statusMessageBox: null
 
     ColumnLayout {
         width: parent.width
@@ -167,10 +191,55 @@ FluScrollablePage {
 
                 RowLayout {
                     Layout.fillWidth: true
+                    spacing: 8
                     FluButton {
                         text: qsTr("移除荣耀水晶框")
                         enabled: Lcu.connected
                         onClicked: Lcu.removePrestigeCrest()
+                    }
+                    FluButton {
+                        text: qsTr("自定义生涯背景")
+                        enabled: Lcu.connected
+                        onClicked: bgPicker.open()
+                    }
+                }
+
+                FluDivider { Layout.fillWidth: true }
+
+                // ===== custom signature (国服雪藏的"自定义签名"功能) =====
+                RowLayout {
+                    Layout.fillWidth: true
+                    FluText { text: qsTr("个性签名"); font: FluTextStyle.Body }
+                    Item { Layout.fillWidth: true }
+                    FluText {
+                        text: qsTr("好友可见")
+                        color: FluColors.Grey120
+                        font.pixelSize: 11
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+                    FluTextBox {
+                        id: statusBox
+                        Layout.fillWidth: true
+                        placeholderText: qsTr("点击编辑签名,好友列表上会显示")
+                        text: page.statusMessageDraft
+                        onTextChanged: page.statusMessageDraft = text
+                        Component.onCompleted: page.statusMessageBox = statusBox
+                    }
+                    FluFilledButton {
+                        text: qsTr("保存")
+                        enabled: Lcu.connected && page.statusMessageDraft !== page.currentStatusMessage
+                        onClicked: Lcu.setStatusMessage(page.statusMessageDraft)
+                    }
+                    FluButton {
+                        text: qsTr("清空")
+                        enabled: Lcu.connected && page.currentStatusMessage.length > 0
+                        onClicked: {
+                            page.statusMessageDraft = ""
+                            Lcu.setStatusMessage("")
+                        }
                     }
                 }
 
@@ -375,5 +444,9 @@ FluScrollablePage {
         AutoActionsPanel {
             Layout.fillWidth: true
         }
+    }
+
+    BackgroundSkinPicker {
+        id: bgPicker
     }
 }
