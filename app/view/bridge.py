@@ -929,16 +929,19 @@ class LcuBridge(QObject):
             # LCU returns 404 RPC_ERROR "You are not logged in" when its REST
             # surface comes up before the user has finished signing in (this
             # is normal during startup and can persist for many seconds on
-            # TENCENT). Poll in the background until it succeeds instead of
-            # giving up — otherwise the profile page sits empty forever.
+            # TENCENT). Other transient errors (5xx, timeouts, occasional
+            # ECONNRESET during client startup) used to bail outright, leaving
+            # the profile page stuck with connected=true but empty data.
+            # Funnel both into the same polling task so the UI eventually
+            # populates without requiring a manual refresh.
             if self._is_not_logged_in_error(e):
                 self._start_login_wait()
                 return
-            log.exception("refresh failed: %s", e)
-            self.errorOccurred.emit(str(e))
+            log.warning("refresh failed, will retry: %s", e)
+            self._start_login_wait()
         except Exception as e:  # noqa: BLE001
-            log.exception("refresh failed: %s", e)
-            self.errorOccurred.emit(str(e))
+            log.warning("refresh failed, will retry: %s", e)
+            self._start_login_wait()
 
     @staticmethod
     def _is_not_logged_in_error(e: LcuError) -> bool:
@@ -954,9 +957,12 @@ class LcuBridge(QObject):
         self._login_wait_task = self._spawn(self._wait_for_login(), name="bridge-login-wait")
 
     async def _wait_for_login(self) -> None:
-        # Exponential-ish backoff capped at 10s — fast enough that the UI
+        # Exponential-ish backoff capped at 5s — fast enough that the UI
         # populates within a couple of seconds of login completing, slow
-        # enough that we don't hammer LCU.
+        # enough that we don't hammer LCU. Treat *any* failure (not-logged-in,
+        # 5xx, timeout, EOF during client startup) as "keep waiting" — bailing
+        # on the first non-login error used to leave the overview page stuck
+        # with connected=true but empty summoner data.
         delays = [1.0, 2.0, 3.0, 5.0]
         idx = 0
         while self._client.is_connected():
@@ -967,13 +973,15 @@ class LcuBridge(QObject):
             except NotConnectedError:
                 return
             except LcuError as e:
-                if self._is_not_logged_in_error(e):
-                    continue
-                log.warning("login wait got non-login error: %s", e)
-                return
+                if not self._is_not_logged_in_error(e):
+                    log.debug("login wait got transient error, retrying: %s", e)
+                continue
             except Exception as e:  # noqa: BLE001
-                log.warning("login wait failed: %s", e)
-                return
+                log.debug("login wait transient failure, retrying: %s", e)
+                continue
+            if not me or not me.get("puuid"):
+                # LCU sometimes returns an empty stub before login completes.
+                continue
             self._summoner = me
             self.summonerChanged.emit()
             log.info("login detected — refreshing data")

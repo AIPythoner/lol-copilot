@@ -16,6 +16,11 @@ FluScrollablePage {
     readonly property var ranked: Lcu.ranked || ({})
     readonly property var rankedQueues: ranked.queues || []
     readonly property var recentMatches: (Lcu.matches || []).slice(0, 20)
+    // dataReady = connected AND summoner payload actually populated. We can't
+    // rely on Lcu.connected alone: the LCU REST surface comes up before login
+    // finishes, and a single transient 5xx during startup used to leave the
+    // page with connected=true but empty summoner forever.
+    readonly property bool dataReady: Lcu.connected && !!(summoner.gameName || summoner.displayName || summoner.puuid)
 
     ColumnLayout {
         width: parent.width
@@ -53,13 +58,15 @@ FluScrollablePage {
                             text: (summoner.gameName || summoner.displayName)
                                 ? ((summoner.gameName || summoner.displayName)
                                    + (summoner.tagLine ? "#" + summoner.tagLine : ""))
-                                : qsTr("未连接")
+                                : (Lcu.connected
+                                    ? qsTr("正在加载客户端数据…")
+                                    : qsTr("未连接"))
                             font: FluTextStyle.Title
                         }
                     }
 
                     FluText {
-                        visible: Lcu.connected
+                        visible: page.dataReady
                         text: qsTr("等级 ") + (summoner.summonerLevel || 0)
                         color: FluColors.Grey120
                     }
@@ -80,7 +87,7 @@ FluScrollablePage {
         FluText {
             text: qsTr("段位")
             font: FluTextStyle.Subtitle
-            visible: Lcu.connected
+            visible: page.dataReady
         }
 
         GridLayout {
@@ -88,13 +95,13 @@ FluScrollablePage {
             columns: 3
             rowSpacing: 10
             columnSpacing: 10
-            visible: Lcu.connected
+            visible: page.dataReady
 
             Repeater {
                 model: rankedQueues
                 delegate: FluArea {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 160
+                    Layout.preferredHeight: 128
                     paddings: 12
 
                     RowLayout {
@@ -111,10 +118,10 @@ FluScrollablePage {
                         // larger than the desired visible size.
                         Item {
                             Layout.alignment: Qt.AlignVCenter
-                            Layout.preferredWidth: 130
-                            Layout.preferredHeight: 130
-                            Layout.minimumWidth: 130
-                            Layout.minimumHeight: 130
+                            Layout.preferredWidth: 100
+                            Layout.preferredHeight: 100
+                            Layout.minimumWidth: 100
+                            Layout.minimumHeight: 100
                             Image {
                                 anchors.centerIn: parent
                                 width: 280
@@ -130,6 +137,8 @@ FluScrollablePage {
 
                         ColumnLayout {
                             Layout.fillWidth: true
+                            Layout.fillHeight: false
+                            Layout.alignment: Qt.AlignVCenter
                             spacing: 3
                             FluText {
                                 text: _queueLabel(modelData.queueType)
@@ -176,14 +185,14 @@ FluScrollablePage {
         FluText {
             text: qsTr("最近 20 场")
             font: FluTextStyle.Subtitle
-            visible: Lcu.connected
+            visible: page.dataReady
         }
 
         FluArea {
             Layout.fillWidth: true
             Layout.preferredHeight: 96
             paddings: 14
-            visible: Lcu.connected
+            visible: page.dataReady
 
             RowLayout {
                 anchors.fill: parent
@@ -221,14 +230,14 @@ FluScrollablePage {
         FluText {
             text: qsTr("快速操作")
             font: FluTextStyle.Subtitle
-            visible: Lcu.connected
+            visible: page.dataReady
         }
 
         FluArea {
             Layout.fillWidth: true
             Layout.preferredHeight: 72
             paddings: 14
-            visible: Lcu.connected
+            visible: page.dataReady
 
             RowLayout {
                 anchors.fill: parent
@@ -257,11 +266,35 @@ FluScrollablePage {
             }
         }
 
-        FluText {
-            visible: !Lcu.connected
-            Layout.alignment: Qt.AlignHCenter
-            text: qsTr("请启动英雄联盟客户端后自动连接")
-            color: FluColors.Grey120
+        FluArea {
+            visible: !page.dataReady
+            Layout.fillWidth: true
+            Layout.preferredHeight: 96
+            paddings: 16
+
+            ColumnLayout {
+                anchors.centerIn: parent
+                spacing: 4
+                FluText {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: Lcu.connected
+                        ? qsTr("已连上客户端，正在等待召唤师数据返回…")
+                        : qsTr("尚未检测到英雄联盟客户端，请先启动游戏客户端")
+                    font: FluTextStyle.Subtitle
+                }
+            }
+        }
+
+        // Tick refresh while either disconnected OR connected-but-empty.
+        // Connected-but-empty happens when LCU's REST surface answers before
+        // login completes, or returns a transient 5xx on the first fetch.
+        Timer {
+            id: autoReconnectTimer
+            interval: 30000
+            repeat: true
+            running: !page.dataReady && page.visible
+            triggeredOnStart: false
+            onTriggered: Lcu.refresh()
         }
     }
 

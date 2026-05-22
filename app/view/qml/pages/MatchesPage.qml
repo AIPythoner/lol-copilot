@@ -18,10 +18,10 @@ FluScrollablePage {
             if (Lcu.connected) _refreshIfNeeded()
         }
         function onMatchesChanged() {
-            if (page.pendingPageIndex >= 0 && filteredMatches.length > page.pendingPageIndex * page.pageSize) {
-                page.pageIndex = page.pendingPageIndex
-                page.pendingPageIndex = -1
-            }
+            // Drive the pending-page state-machine forward whenever new raw
+            // matches land. Under a queue filter we may need several rounds
+            // of loadMoreMatches before filteredMatches has enough rows.
+            page._tryAdvancePending()
             if (page.pageIndex > 0 && page.pageIndex >= page.pageCount()) {
                 page.pageIndex = Math.max(0, page.pageCount() - 1)
             }
@@ -54,7 +54,7 @@ FluScrollablePage {
     }
     property var pagedMatches: filteredMatches.slice(pageIndex * pageSize, (pageIndex + 1) * pageSize)
 
-    onFilterIndexChanged: pageIndex = 0
+    onFilterIndexChanged: { pageIndex = 0; pendingPageIndex = -1 }
 
     ColumnLayout {
         width: parent.width
@@ -171,8 +171,37 @@ FluScrollablePage {
             pageIndex = next
             return
         }
-        if (filterIndex === 0 && Lcu.matchesHasMore) {
+        if (pendingPageIndex >= 0) return // already chasing more data
+        if (Lcu.matchesHasMore) {
             pendingPageIndex = next
+            _tryAdvancePending()
+        }
+    }
+
+    // Pull more raw matches until filteredMatches has enough rows for the
+    // target page. LCU's match-history endpoint doesn't support queue-side
+    // filtering, so for non-"全部模式" we may need to fetch several batches
+    // before the queue we want appears.
+    function _tryAdvancePending() {
+        if (pendingPageIndex < 0) return
+        var target = pendingPageIndex
+        if (filteredMatches.length > target * pageSize) {
+            pageIndex = target
+            pendingPageIndex = -1
+            return
+        }
+        if (!Lcu.matchesHasMore) {
+            // backend has nothing more — clamp to whatever we managed to load
+            var maxIdx = Math.max(0, pageCount() - 1)
+            if (target <= maxIdx && filteredMatches.length > target * pageSize) {
+                pageIndex = target
+            } else {
+                pageIndex = maxIdx
+            }
+            pendingPageIndex = -1
+            return
+        }
+        if (!Lcu.matchesLoading) {
             Lcu.loadMoreMatches()
         }
     }

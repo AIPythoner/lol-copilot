@@ -154,6 +154,12 @@ FluWindow {
                 onTap: nav.navigateTop(url)
             }
             FluPaneItem {
+                title: qsTr("更新日志")
+                icon: FluentIcons.History
+                url: Qt.resolvedUrl("pages/ChangelogPage.qml")
+                onTap: nav.navigateTop(url)
+            }
+            FluPaneItem {
                 title: qsTr("设置")
                 icon: FluentIcons.Settings
                 url: Qt.resolvedUrl("pages/SettingsPage.qml")
