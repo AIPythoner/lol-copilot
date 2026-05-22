@@ -35,11 +35,12 @@ RANKED_BUILD_PATH = "/lol/champions/{champ}/build"
 RANKED_RUNES_PATH = "/lol/champions/{champ}/runes"
 MODE_BUILD_PATH = "/lol/modes/{mode}/{champ}/build"
 
-# When OPGG_PROXY_URL is set, fetch_build() goes through the opgg-proxy
-# service on Render instead of hitting op.gg directly. Required for users
-# in mainland China where op.gg is unreachable.
+# By default, fetch_build() goes through the opgg-proxy service on Render
+# instead of hitting op.gg directly. Required for users in mainland China
+# where op.gg is unreachable. OPGG_PROXY_URL can override the hosted proxy.
 # See https://github.com/AIPythoner/opgg-proxy.
-_PROXY_URL = os.environ.get("OPGG_PROXY_URL", "").rstrip("/")
+_DEFAULT_PROXY_URL = "https://opgg-proxy.onrender.com"
+_PROXY_URL = (os.environ.get("OPGG_PROXY_URL") or _DEFAULT_PROXY_URL).rstrip("/")
 # Shared secret with the proxy. Hardcoded so end-users don't have to
 # configure anything beyond OPGG_PROXY_URL.
 _PROXY_API_KEY = "og_proxy_lolagent_9f4a7b3e2c8d1e6f5a0b9c4d2e7f3a8b"
