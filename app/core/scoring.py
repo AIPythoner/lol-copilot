@@ -78,7 +78,9 @@ def score_game(game: dict) -> list[ParticipantScore]:
     tagged: list[ParticipantScore] = []
     for tid in teams:
         team_scores = [(p, s) for (p, s) in raw if p.get("teamId") == tid]
-        team_scores.sort(key=lambda t: t[1], reverse=True)
+        team_scores.sort(
+            key=lambda t: (-t[1], t[0].get("participantId", 0))
+        )
         if not team_scores:
             continue
         won = bool(team_scores[0][0].get("stats", {}).get("win"))

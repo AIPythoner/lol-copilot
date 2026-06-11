@@ -47,6 +47,9 @@ MATCH_DETAIL_PRELOAD_COUNT = 3
 MATCH_DETAIL_PRELOAD_CONCURRENCY = 2
 MATCH_DETAIL_ICON_PRELOAD_COUNT = 2
 MATCH_DETAIL_CACHE_LIMIT = 64
+# Sized so one teammates-page pull (up to ~100 game details) fits without
+# evicting itself mid-load.
+RAW_MATCH_DETAIL_CACHE_LIMIT = 128
 MATCH_DETAIL_MIN_SKELETON_MS = 180
 MATCHES_DEFAULT_PAGE_SIZE = 20
 AI_CHUNK_FLUSH_INTERVAL_SEC = 0.08
@@ -80,6 +83,20 @@ def _qml_to_python(value: Any) -> Any:
     if isinstance(value, list):
         return [_qml_to_python(v) for v in value]
     return value
+
+
+def _positive_ints(values: list[Any]) -> list[int]:
+    out: list[int] = []
+    for value in values:
+        if not isinstance(value, (int, float, str)):
+            continue
+        try:
+            parsed = int(float(str(value).strip()))
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0:
+            out.append(parsed)
+    return out
 
 
 class LcuBridge(QObject):
@@ -151,6 +168,8 @@ class LcuBridge(QObject):
         # Bump on every game-data reload — cheap scalar lets QML icon bindings
         # re-eval when items.json arrives without subscribing to the whole dict.
         self._game_data_rev: int = 0
+        self._raw_match_detail_cache: dict[int, dict] = {}
+        self._raw_match_detail_order: list[int] = []
         self._match_detail_cache: dict[int, dict] = {}
         self._match_detail_order: list[int] = []
         self._match_detail_inflight: dict[int, asyncio.Task] = {}
@@ -200,6 +219,7 @@ class LcuBridge(QObject):
         self._rank_cache: dict[str, dict] = {}
 
         self._settings: AppSettings = load_settings()
+        self._bg_tasks: set[asyncio.Task] = set()
         self._client = LcuClient()
         self._watcher = ConnectorWatcher()
         self._events = LcuEventStream()
@@ -224,8 +244,7 @@ class LcuBridge(QObject):
 
     # ----- lifecycle -----
 
-    @staticmethod
-    def _spawn(coro, *, name: str | None = None):
+    def _spawn(self, coro, *, name: str | None = None):
         """Schedule a coroutine on whichever asyncio loop is available.
 
         Slots fire from Qt signals regardless of whether the asyncio loop is
@@ -234,10 +253,13 @@ class LcuBridge(QObject):
         fall back to `loop.create_task` on the current/new loop.
         """
         try:
-            return asyncio.create_task(coro, name=name)
+            task = asyncio.create_task(coro, name=name)
         except RuntimeError:
             loop = asyncio.get_event_loop()
-            return loop.create_task(coro, name=name)
+            task = loop.create_task(coro, name=name)
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
+        return task
 
     def start(self) -> None:
         self._watcher.start()
@@ -247,9 +269,13 @@ class LcuBridge(QObject):
         self._image_provider = provider
 
     async def shutdown(self) -> None:
+        for task in list(self._bg_tasks):
+            task.cancel()
         await self._watcher.stop()
         await self._events.stop()
         await self._client.close()
+        if self._bg_tasks:
+            await asyncio.gather(*self._bg_tasks, return_exceptions=True)
 
     # ----- properties -----
 
@@ -630,8 +656,9 @@ class LcuBridge(QObject):
         self._spawn(self._load_teammates(max(10, count)))
 
     @Slot()
-    def loadAramBuffs(self) -> None:
-        self._spawn(self._load_aram_buffs())
+    @Slot(bool)
+    def loadAramBuffs(self, refresh: bool = False) -> None:
+        self._spawn(self._load_aram_buffs(refresh=refresh))
 
     @Slot(float)
     def spectateBySummonerId(self, summoner_id: float) -> None:
@@ -810,7 +837,7 @@ class LcuBridge(QObject):
                 setattr(aa, k, bool(raw[k]))
         for k in ("ban_priority", "pick_priority"):
             if k in raw and isinstance(raw[k], list):
-                setattr(aa, k, [int(x) for x in raw[k] if isinstance(x, (int, float, str)) and str(x).isdigit()])
+                setattr(aa, k, _positive_ints(raw[k]))
         save_settings(self._settings)
         self._apply_settings_to_auto()
         self.settingsChanged.emit()
@@ -934,14 +961,18 @@ class LcuBridge(QObject):
             self._phase = new_phase
             self.phaseChanged.emit()
             if new_phase == "ChampSelect":
-                await self._load_champ_select()
+                self._spawn(self._load_champ_select(), name="bridge-champ-select-phase")
             elif new_phase in ("GameStart", "InProgress"):
                 # Freeze the current champ-select snapshot so GameflowPage can
                 # keep showing the team composition during the game.
                 if prev == "ChampSelect" and self._champ_select:
                     self._in_game = dict(self._champ_select)
                     self.inGameChanged.emit()
+                if prev == "ChampSelect":
+                    self._auto.reset_session()
             elif new_phase in ("None", "Lobby", "Matchmaking", "EndOfGame", "PreEndOfGame"):
+                if prev == "ChampSelect":
+                    self._auto.reset_session()
                 if self._champ_select:
                     self._champ_select = {}
                     self.champSelectChanged.emit()
@@ -1126,7 +1157,9 @@ class LcuBridge(QObject):
                 puuid = (self._summoner or {}).get("puuid") or ""
             if not puuid:
                 me = await api.current_summoner(self._client)
-                puuid = me["puuid"]
+                puuid = str(me.get("puuid") or "")
+            if not puuid:
+                return
             games: list[dict[str, Any]] = []
             fetch_started_at = time.perf_counter()
             end_index = begin_index + page_size
@@ -1144,6 +1177,8 @@ class LcuBridge(QObject):
             project_started_at = time.perf_counter()
             projected = [self._project_match(g) for g in games]
             project_ms = self._perf_ms(project_started_at)
+            if request_seq != self._matches_request_seq:
+                return
             if append:
                 seen_ids = {m.get("gameId") for m in self._matches}
                 self._matches.extend(m for m in projected if m.get("gameId") not in seen_ids)
@@ -1364,11 +1399,7 @@ class LcuBridge(QObject):
         game_ids: list[int] = []
         seen: set[int] = set()
         for match in matches:
-            raw_gid = match.get("gameId") if isinstance(match, dict) else None
-            try:
-                gid = int(raw_gid)
-            except (TypeError, ValueError):
-                continue
+            gid = _safe_int(match.get("gameId") if isinstance(match, dict) else None)
             if gid <= 0 or gid in seen or gid in self._match_detail_cache:
                 continue
             seen.add(gid)
@@ -1449,7 +1480,7 @@ class LcuBridge(QObject):
 
     async def _fetch_projected_match_detail(self, game_id: int) -> dict[str, Any]:
         started_at = time.perf_counter()
-        g = await api.game_detail(self._client, game_id)
+        g = await self._get_raw_match_detail(game_id)
         fetch_ms = self._perf_ms(started_at)
         project_started_at = time.perf_counter()
         projected = self._project_match_detail(g)
@@ -1473,6 +1504,24 @@ class LcuBridge(QObject):
         while len(self._match_detail_order) > MATCH_DETAIL_CACHE_LIMIT:
             old = self._match_detail_order.pop(0)
             self._match_detail_cache.pop(old, None)
+
+    async def _get_raw_match_detail(self, game_id: int) -> dict[str, Any]:
+        cached = self._raw_match_detail_cache.get(game_id)
+        if cached is not None:
+            self._raw_match_detail_order.remove(game_id)
+            self._raw_match_detail_order.append(game_id)
+            return cached
+        raw = await api.game_detail(self._client, game_id)
+        if isinstance(raw, dict):
+            # Concurrent misses for the same id may both land here; keep the
+            # order list duplicate-free so eviction stays in sync with the dict.
+            if game_id not in self._raw_match_detail_cache:
+                self._raw_match_detail_order.append(game_id)
+            self._raw_match_detail_cache[game_id] = raw
+            while len(self._raw_match_detail_order) > RAW_MATCH_DETAIL_CACHE_LIMIT:
+                old = self._raw_match_detail_order.pop(0)
+                self._raw_match_detail_cache.pop(old, None)
+        return raw
 
     def _preload_match_detail_icons(
         self,
@@ -1587,9 +1636,13 @@ class LcuBridge(QObject):
         team_stats: list[dict] = []
         for t in teams_raw:
             tid = t.get("teamId", 0)
+            win_value = t.get("win")
+            won = win_value is True or (
+                isinstance(win_value, str) and win_value.lower() == "win"
+            )
             team_stats.append({
                 "teamId": tid,
-                "win": t.get("win") == "Win" if isinstance(t.get("win"), str) else bool(t.get("win")),
+                "win": won,
                 "kills": team_kills.get(tid, 0),
                 "damage": team_damage.get(tid, 0),
                 "gold": sum(p["gold"] for p in participants if p["teamId"] == tid),
@@ -2621,14 +2674,17 @@ class LcuBridge(QObject):
                 if len(batch) < (end - begin + 1):
                     break
             history_ms = self._perf_ms(history_started_at)
-            game_ids = [g.get("gameId") for g in games if g.get("gameId")]
+            game_ids = [
+                gid for gid in (_safe_int(g.get("gameId")) for g in games)
+                if gid > 0
+            ]
             # Fetch details with bounded concurrency.
             sem = asyncio.Semaphore(5)
 
             async def one(gid: int) -> dict | None:
                 async with sem:
                     try:
-                        return await api.game_detail(self._client, gid)
+                        return await self._get_raw_match_detail(gid)
                     except Exception:  # noqa: BLE001
                         return None
 
@@ -2708,9 +2764,9 @@ class LcuBridge(QObject):
             log.warning("teammates failed: %s", e)
             self.errorOccurred.emit(str(e))
 
-    async def _load_aram_buffs(self) -> None:
+    async def _load_aram_buffs(self, refresh: bool = False) -> None:
         try:
-            data = await aram_buff.fetch_aram()
+            data = await aram_buff.fetch_aram(refresh=refresh)
             self._aram_buffs = sorted(data.values(), key=lambda x: x["championId"])
             self.aramBuffsChanged.emit()
         except Exception as e:  # noqa: BLE001
@@ -2911,7 +2967,7 @@ class LcuBridge(QObject):
                 if champ_record
                 else None
             ) or champion
-            champion_id = int(champ_record.get("id")) if champ_record and champ_record.get("id") else 0
+            champion_id = _safe_int(champ_record.get("id") if champ_record else None)
             build = await opgg.fetch_build(
                 lookup_name,
                 mode=mode or self._settings.opgg.mode,

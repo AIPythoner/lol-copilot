@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -141,7 +142,13 @@ def load_settings() -> AppSettings:
 
 def save_settings(s: AppSettings) -> None:
     p = config_path()
+    tmp = p.with_suffix(".json.tmp")
     try:
-        p.write_text(json.dumps(s.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.write_text(json.dumps(s.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, p)
     except Exception as e:  # noqa: BLE001
         log.warning("failed to save settings %s: %s", p, e)
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            pass

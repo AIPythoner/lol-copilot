@@ -74,7 +74,7 @@ FluScrollablePage {
                 }
                 FluIconButton {
                     iconSource: FluentIcons.Refresh
-                    onClicked: Lcu.loadAramBuffs()
+                    onClicked: Lcu.loadAramBuffs(true)
                 }
             }
         }

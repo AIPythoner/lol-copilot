@@ -7,8 +7,7 @@ and international clients, since both spawn LeagueClientUx.exe.
 from __future__ import annotations
 
 import asyncio
-import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Optional
 
 import psutil
@@ -18,14 +17,11 @@ from app.common.logger import get_logger
 
 log = get_logger(__name__)
 
-_ARG_RE = re.compile(r'--([a-zA-Z0-9\-]+)=(?:"([^"]*)"|(\S+))')
-
-
 @dataclass(frozen=True)
 class LcuCredentials:
     pid: int
     port: int
-    token: str
+    token: str = field(repr=False)
     install_dir: Optional[str] = None
     region: Optional[str] = None
     locale: Optional[str] = None
@@ -40,24 +36,25 @@ class LcuCredentials:
 
 
 def _parse_cmdline(args: list[str]) -> dict[str, str]:
-    joined = " ".join(args)
     out: dict[str, str] = {}
-    for m in _ARG_RE.finditer(joined):
-        key = m.group(1)
-        val = m.group(2) if m.group(2) is not None else m.group(3)
-        out[key] = val
+    for arg in args:
+        if not arg.startswith("--") or "=" not in arg:
+            continue
+        key, val = arg[2:].split("=", 1)
+        out[key] = val.strip('"')
     return out
 
 
 def _iter_client_processes() -> list[psutil.Process]:
     targets = {name.lower() for name in CLIENT_PROCESS_NAMES}
+    targets_without_suffix = {t.removesuffix(".exe") for t in targets}
     found: list[psutil.Process] = []
     for proc in psutil.process_iter(["name"]):
         try:
             name = (proc.info.get("name") or "").lower()
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
-        if name in targets or name.rstrip(".exe") in {t.rstrip(".exe") for t in targets}:
+        if name in targets or name.removesuffix(".exe") in targets_without_suffix:
             found.append(proc)
     return found
 
@@ -120,8 +117,10 @@ class ConnectorWatcher:
             self._task.cancel()
             try:
                 await self._task
-            except (asyncio.CancelledError, Exception):
+            except asyncio.CancelledError:
                 pass
+            except Exception as e:  # noqa: BLE001
+                log.exception("connector watcher stop failed: %s", e)
             self._task = None
 
     async def _run(self) -> None:

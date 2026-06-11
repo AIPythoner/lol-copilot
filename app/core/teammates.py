@@ -123,7 +123,9 @@ def detect_pregroups(
                        for m in a.get("recent") or []}
             for m in b.get("recent") or []:
                 gid = m.get("gameId", 0)
-                if gid in a_games and a_games[gid] == index.get((b["puuid"], gid), -1):
+                a_team = a_games.get(gid, 0)
+                b_team = index.get((b["puuid"], gid), 0)
+                if gid in a_games and a_team and b_team and a_team == b_team:
                     shared += 1
             if shared >= threshold:
                 pair_counts[(a["puuid"], b["puuid"])] = shared

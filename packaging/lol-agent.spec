@@ -47,7 +47,14 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=True,
-    upx_exclude=[],
+    upx_exclude=[
+        "libssl-3-x64.dll",
+        "libssl-3.dll",
+        "libcrypto-3-x64.dll",
+        "libcrypto-3.dll",
+        "Qt6*.dll",
+        "vcruntime*.dll",
+    ],
     name="lol-copilot",
 )
 

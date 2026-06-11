@@ -21,8 +21,10 @@ import asyncio
 import json
 import os
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
+from urllib.parse import quote
 
 import httpx
 
@@ -41,9 +43,13 @@ MODE_BUILD_PATH = "/lol/modes/{mode}/{champ}/build"
 # See https://github.com/AIPythoner/opgg-proxy.
 _DEFAULT_PROXY_URL = "https://opgg-proxy.onrender.com"
 _PROXY_URL = (os.environ.get("OPGG_PROXY_URL") or _DEFAULT_PROXY_URL).rstrip("/")
-# Shared secret with the proxy. Hardcoded so end-users don't have to
-# configure anything beyond OPGG_PROXY_URL.
+# Fixed public client identifier for the hosted proxy. Hardcoding it into
+# desktop builds is a deliberate (temporary) design choice so end-users need
+# zero configuration; it is extractable from the binary and therefore not a
+# secret — server-side rate limits must not rely on it as authentication.
+# Rotating it requires shipping a new release.
 _PROXY_API_KEY = "og_proxy_lolagent_9f4a7b3e2c8d1e6f5a0b9c4d2e7f3a8b"
+_FETCH_CACHE_TTL_SEC = 12 * 60
 
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -105,11 +111,64 @@ class OpggError(RuntimeError):
     pass
 
 
+_FETCH_CACHE: dict[tuple[str, str, Optional[str], str, str], tuple[float, ChampionBuild]] = {}
+_FETCH_INFLIGHT: dict[tuple[str, str, Optional[str], str, str], asyncio.Task[ChampionBuild]] = {}
+
+
 def _slugify(name: str) -> str:
     return name.lower().replace("'", "").replace(" ", "").replace(".", "")
 
 
+def _safe_slug(name: str) -> str:
+    slug = _slugify(name)
+    if not slug or "/" in slug or "\\" in slug:
+        return ""
+    return quote(slug, safe="")
+
+
 async def fetch_build(
+    champion: str,
+    *,
+    mode: str = "ranked",
+    position: Optional[str] = None,
+    tier: str = "emerald_plus",
+    region: str = "global",
+    timeout: float = 15.0,
+) -> ChampionBuild:
+    key = (
+        _slugify(champion),
+        (mode or "ranked").lower(),
+        position or None,
+        tier,
+        region,
+    )
+    cached = _FETCH_CACHE.get(key)
+    now = time.monotonic()
+    if cached is not None and now - cached[0] < _FETCH_CACHE_TTL_SEC:
+        return cached[1]
+    task = _FETCH_INFLIGHT.get(key)
+    if task is None:
+        task = asyncio.create_task(
+            _fetch_build_uncached(
+                champion,
+                mode=mode,
+                position=position,
+                tier=tier,
+                region=region,
+                timeout=timeout,
+            )
+        )
+        _FETCH_INFLIGHT[key] = task
+    try:
+        build = await task
+        _FETCH_CACHE[key] = (time.monotonic(), build)
+        return build
+    finally:
+        if task.done() and _FETCH_INFLIGHT.get(key) is task:
+            _FETCH_INFLIGHT.pop(key, None)
+
+
+async def _fetch_build_uncached(
     champion: str,
     *,
     mode: str = "ranked",
@@ -129,7 +188,9 @@ async def fetch_build(
             region=region,
             timeout=max(timeout, 60.0),
         )
-    slug = _slugify(champion)
+    slug = _safe_slug(champion)
+    if not slug:
+        raise OpggError(f"invalid champion slug: {champion!r}")
     if mode == "ranked":
         build_url = BASE_URL + RANKED_BUILD_PATH.format(champ=slug)
         runes_url = BASE_URL + RANKED_RUNES_PATH.format(champ=slug)
@@ -189,7 +250,10 @@ async def _fetch_via_proxy(
     headers: dict[str, str] = {"Accept": "application/json"}
     if _PROXY_API_KEY:
         headers["X-API-Key"] = _PROXY_API_KEY
-    url = f"{_PROXY_URL}/build/{_slugify(champion)}"
+    slug = _safe_slug(champion)
+    if not slug:
+        raise OpggError(f"invalid champion slug: {champion!r}")
+    url = f"{_PROXY_URL}/build/{slug}"
 
     async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=timeout) as c:
         resp = await c.get(url, params=params)

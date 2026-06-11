@@ -10,10 +10,9 @@ import base64
 import json
 import ssl
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional, cast
 
 import websockets
-from websockets.client import WebSocketClientProtocol
 
 from app.common.config import WS_RECONNECT_INTERVAL_SEC, WS_SUBSCRIBE_EVENT
 from app.common.logger import get_logger
@@ -42,7 +41,7 @@ class LcuEventStream:
     def __init__(self) -> None:
         self._creds: Optional[LcuCredentials] = None
         self._task: Optional[asyncio.Task] = None
-        self._ws: Optional[WebSocketClientProtocol] = None
+        self._ws: Optional[Any] = None
         self._handlers: list[tuple[str, EventHandler]] = []
         self._stop = asyncio.Event()
 
@@ -63,8 +62,10 @@ class LcuEventStream:
             self._task.cancel()
             try:
                 await self._task
-            except (asyncio.CancelledError, Exception):
+            except asyncio.CancelledError:
                 pass
+            except Exception as e:  # noqa: BLE001
+                log.exception("lcu event stream stop failed: %s", e)
             self._task = None
 
     async def _restart(self) -> None:
@@ -72,8 +73,10 @@ class LcuEventStream:
             self._task.cancel()
             try:
                 await self._task
-            except (asyncio.CancelledError, Exception):
+            except asyncio.CancelledError:
                 pass
+            except Exception as e:  # noqa: BLE001
+                log.exception("lcu event stream restart failed: %s", e)
             self._task = None
         if self._creds is None:
             return
@@ -96,7 +99,7 @@ class LcuEventStream:
                     url,
                     ssl=ssl_ctx,
                     additional_headers=headers,
-                    subprotocols=["wamp"],
+                    subprotocols=cast(Any, ["wamp"]),
                     max_size=2**23,
                     ping_interval=None,
                 ) as ws:

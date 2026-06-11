@@ -39,6 +39,7 @@ class LcuClient:
         self._client: Optional[httpx.AsyncClient] = None
         self._creds: Optional[LcuCredentials] = None
         self._request_sem = asyncio.Semaphore(LCU_MAX_CONCURRENT_REQUESTS)
+        self._swap_lock = asyncio.Lock()
 
     def is_connected(self) -> bool:
         return self._client is not None and self._creds is not None
@@ -48,33 +49,53 @@ class LcuClient:
         return self._creds
 
     async def set_credentials(self, creds: Optional[LcuCredentials]) -> None:
-        if creds == self._creds:
-            return
-        await self.close()
-        self._creds = creds
-        if creds is None:
-            return
-        self._client = httpx.AsyncClient(
-            base_url=creds.base_url,
-            auth=("riot", creds.token),
-            verify=False,  # LCU uses a self-signed riotgames.pem
-            timeout=LCU_REQUEST_TIMEOUT_SEC,
-            headers={"Accept": "application/json"},
-        )
-        log.debug("lcu client bound to %s", creds.base_url)
+        async with self._swap_lock:
+            if creds == self._creds:
+                return
+            old_client = self._client
+            self._client = None
+            self._creds = creds
+            if old_client is not None:
+                try:
+                    await old_client.aclose()
+                except Exception as e:  # noqa: BLE001
+                    log.debug("failed to close old lcu client: %s", e)
+            if creds is None:
+                return
+            self._client = httpx.AsyncClient(
+                base_url=creds.base_url,
+                auth=("riot", creds.token),
+                verify=False,  # LCU uses a self-signed riotgames.pem
+                timeout=LCU_REQUEST_TIMEOUT_SEC,
+                headers={"Accept": "application/json"},
+            )
+            log.debug("lcu client bound to %s", creds.base_url)
 
     async def close(self) -> None:
-        if self._client is not None:
-            try:
-                await self._client.aclose()
-            except Exception:  # noqa: BLE001
-                pass
-            self._client = None
+        await self.set_credentials(None)
 
     def _require(self) -> httpx.AsyncClient:
         if self._client is None:
             raise NotConnectedError("LCU client not connected")
         return self._client
+
+    async def _snapshot_client(self) -> httpx.AsyncClient:
+        async with self._swap_lock:
+            return self._require()
+
+    async def _send_once(
+        self,
+        client: httpx.AsyncClient,
+        method: str,
+        uri: str,
+        *,
+        json: Any | None,
+        params: dict | None,
+    ) -> httpx.Response:
+        if method.upper() == "GET":
+            async with self._request_sem:
+                return await client.request(method, uri, json=json, params=params)
+        return await client.request(method, uri, json=json, params=params)
 
     async def request(
         self,
@@ -85,12 +106,14 @@ class LcuClient:
         params: dict | None = None,
         raw: bool = False,
     ) -> Any:
-        client = self._require()
-        if method.upper() == "GET":
-            async with self._request_sem:
-                resp = await client.request(method, uri, json=json, params=params)
-        else:
-            resp = await client.request(method, uri, json=json, params=params)
+        client = await self._snapshot_client()
+        try:
+            resp = await self._send_once(client, method, uri, json=json, params=params)
+        except RuntimeError as e:
+            if "closed" not in str(e).lower():
+                raise
+            client = await self._snapshot_client()
+            resp = await self._send_once(client, method, uri, json=json, params=params)
         if resp.status_code >= 400:
             try:
                 payload = resp.json()

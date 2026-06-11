@@ -54,6 +54,9 @@ class AutoActions:
         events.subscribe(api.EVENT_MATCHMAKING_READY_CHECK, self._on_ready_check)
         events.subscribe(api.EVENT_CHAMP_SELECT, self._on_champ_select)
 
+    def reset_session(self) -> None:
+        self._reset_session()
+
     def _notify(self, title: str, body: str) -> None:
         if self._notifier:
             try:
@@ -162,3 +165,4 @@ class AutoActions:
     def _reset_session(self) -> None:
         self._acted_banned = False
         self._acted_picked = False
+        self._last_session_id = None

@@ -282,12 +282,17 @@ async def snapshot_session(
     ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    players: list[PlayerCard] = []
+    players_by_cell: list[PlayerCard | None] = []
     for r in results:
         if isinstance(r, PlayerCard):
-            players.append(r)
-    my_team = [p for p in players if p.team_id == 1] or players[: len(my_cells)]
-    their_team = [p for p in players if p.team_id == 2] or players[len(my_cells):]
+            players_by_cell.append(r)
+        else:
+            players_by_cell.append(None)
+    players = [p for p in players_by_cell if p is not None]
+    my_players = [p for p in players_by_cell[: len(my_cells)] if p is not None]
+    their_players = [p for p in players_by_cell[len(my_cells):] if p is not None]
+    my_team = [p for p in players if p.team_id == 1] or my_players
+    their_team = [p for p in players if p.team_id == 2] or their_players
 
     bans_raw = session.get("bans") or {}
     bans = {

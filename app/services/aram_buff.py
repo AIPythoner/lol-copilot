@@ -7,6 +7,7 @@ scrape that page and map champion names back to CDragon champion ids.
 from __future__ import annotations
 
 import re
+import asyncio
 from html import unescape
 from typing import Any
 
@@ -21,6 +22,7 @@ CHAMPION_SUMMARY_URL = (
     "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/v1/"
     "champion-summary.json"
 )
+_ARAM_CACHE: dict[int, dict[str, Any]] | None = None
 
 
 def _norm_name(name: str) -> str:
@@ -57,9 +59,15 @@ def _strip_tags(html: str) -> str:
     return re.sub(r"<[^>]+>", "", html)
 
 
-async def fetch_aram() -> dict[int, dict[str, Any]]:
+async def fetch_aram(*, refresh: bool = False) -> dict[int, dict[str, Any]]:
+    global _ARAM_CACHE
+    if _ARAM_CACHE is not None and not refresh:
+        return _ARAM_CACHE
     async with httpx.AsyncClient(timeout=20.0) as c:
-        champions_resp, aram_resp = await c.get(CHAMPION_SUMMARY_URL), await c.get(ARAM_MAYHEM_URL)
+        champions_resp, aram_resp = await asyncio.gather(
+            c.get(CHAMPION_SUMMARY_URL),
+            c.get(ARAM_MAYHEM_URL),
+        )
         champions_resp.raise_for_status()
         aram_resp.raise_for_status()
 
@@ -107,4 +115,5 @@ async def fetch_aram() -> dict[int, dict[str, Any]]:
             k: v for k, v in entry.items()
             if k == "championId" or v not in (1.0, 0.0)
         }
+    _ARAM_CACHE = out
     return out

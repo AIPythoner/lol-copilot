@@ -255,9 +255,11 @@ FluScrollablePage {
                         enabled: selectedChampionId > 0 || champBox.text.length > 0
                         onClicked: {
                             var name = selectedChampionName || champBox.text
-                            var posValue = positionOptions[cbPos.currentIndex].value
+                            var posOpt = positionOptions[cbPos.currentIndex] || positionOptions[0]
+                            var modeOpt = modeOptions[cbMode.currentIndex] || modeOptions[0]
+                            var posValue = posOpt.value
                             var pos = posValue === "auto" ? "" : posValue
-                            var modeValue = modeOptions[cbMode.currentIndex].value
+                            var modeValue = modeOpt.value
                             Lcu.loadOpggBuild(name, modeValue, pos)
                         }
                     }
