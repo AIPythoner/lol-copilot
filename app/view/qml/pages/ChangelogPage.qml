@@ -11,6 +11,15 @@ FluScrollablePage {
 
     readonly property var entries: [
         {
+            version: "v0.2.7",
+            date: "2026-06-23",
+            title: qsTr("窗口自适应屏幕与图标修复"),
+            items: [
+                qsTr("窗口尺寸自动适配屏幕：在 1080p 高缩放等小屏上不再超出桌面被任务栏遮挡"),
+                qsTr("修复「战绩」导航项缺失的图标")
+            ]
+        },
+        {
             version: "v0.2.6",
             date: "2026-06-23",
             title: qsTr("全新毛玻璃界面、免费 AI 复盘与浅色主题"),

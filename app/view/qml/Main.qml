@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import QtQuick.Controls
 import QtQuick.Layouts
 import FluentUI
@@ -7,10 +8,17 @@ import "components"
 FluWindow {
     id: window
     title: qsTr("LoL 战绩助手")
-    width: Lcu.settings.window && Lcu.settings.window.width ? Lcu.settings.window.width : 1100
-    height: Lcu.settings.window && Lcu.settings.window.height ? Lcu.settings.window.height : 660
     minimumWidth: 900
-    minimumHeight: 560
+    minimumHeight: 540
+    // Preferred size (or the user's last saved size), but CLAMPED to the
+    // current screen's available area so the window never opens larger than the
+    // desktop. Without this a 1080p laptop at 150% scaling (logical ~1280×720)
+    // — or restoring a big saved size on a smaller screen — would open taller
+    // than the desktop and slip under the taskbar.
+    readonly property int _wantW: (Lcu.settings.window && Lcu.settings.window.width) ? Lcu.settings.window.width : 1100
+    readonly property int _wantH: (Lcu.settings.window && Lcu.settings.window.height) ? Lcu.settings.window.height : 660
+    width: Math.max(minimumWidth, Math.min(_wantW, Screen.desktopAvailableWidth - 40))
+    height: Math.max(minimumHeight, Math.min(_wantH, Screen.desktopAvailableHeight - 48))
     launchMode: FluWindowType.SingleTask
     fitsAppBarWindows: true
     property bool trayAvailable: true
@@ -96,7 +104,7 @@ FluWindow {
             }
             FluPaneItem {
                 title: qsTr("战绩")
-                icon: FluentIcons.HistoryList
+                icon: FluentIcons.History
                 url: Qt.resolvedUrl("pages/MatchesPage.qml")
                 onTap: nav.navigateTop(url)
             }
