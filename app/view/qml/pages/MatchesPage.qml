@@ -58,11 +58,11 @@ FluScrollablePage {
 
     ColumnLayout {
         width: parent.width
-        spacing: 10
+        spacing: AppTheme.sp3
 
         RowLayout {
             Layout.fillWidth: true
-            spacing: 8
+            spacing: AppTheme.sp2
             FluFilledButton {
                 text: qsTr("刷新")
                 onClicked: _refresh(pageSize)
@@ -83,8 +83,8 @@ FluScrollablePage {
                 onClicked: _refresh(pageSize)
                 enabled: Lcu.connected && !Lcu.matchesLoading && allMatches.length > 0
             }
-            Rectangle { width: 1; height: 24; color: FluColors.Grey120; opacity: 0.3 }
-            FluText { text: qsTr("按模式筛选"); color: FluColors.Grey120; font.pixelSize: 12 }
+            Rectangle { width: 1; height: 24; color: AppTheme.textSecondary; opacity: 0.3 }
+            FluText { text: qsTr("按模式筛选"); color: AppTheme.textSecondary; font.pixelSize: 12 }
             FluComboBox {
                 Layout.preferredWidth: 140
                 model: filterOptions.map(function(o){ return o.label })
@@ -94,7 +94,7 @@ FluScrollablePage {
             Item { Layout.fillWidth: true }
             FluText {
                 text: _summary()
-                color: FluColors.Grey120
+                color: AppTheme.textSecondary
                 font.pixelSize: 12
             }
         }
@@ -113,7 +113,7 @@ FluScrollablePage {
             Layout.fillWidth: true
             Layout.preferredHeight: Math.max(360, page.height - 150)
             text: qsTr("加载最近战绩…")
-            accent: "#d4a04a"
+            accent: AppTheme.accent
             ringSize: 34
         }
 
@@ -125,7 +125,7 @@ FluScrollablePage {
                 return qsTr("当前筛选无匹配对局，切换到「全部模式」查看完整列表")
             }
             Layout.alignment: Qt.AlignHCenter
-            color: FluColors.Grey120
+            color: AppTheme.textSecondary
         }
     }
 
@@ -206,12 +206,13 @@ FluScrollablePage {
         }
     }
 
-    component MatchCard: FluArea {
+    component MatchCard: GlassCard {
         id: card
         property var match: ({})
-        signal clicked()
         Layout.preferredHeight: 88
         paddings: 0
+        hoverable: true
+        interactive: true
 
         // [PERF] Per-row KDA was being computed THREE times — once for the
         // text, twice inside the color expression (kdaRatio()+parseFloat).
@@ -219,20 +220,13 @@ FluScrollablePage {
         readonly property string kdaText: Fmt.kdaRatio(match.kills||0, match.deaths||0, match.assists||0)
         readonly property real kdaValue: parseFloat(card.kdaText)
 
-        MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: card.clicked()
-        }
-
         Rectangle {
             id: sideBar
             anchors.left: parent.left
             anchors.top: parent.top
             anchors.bottom: parent.bottom
             width: 5
-            color: match.win ? "#3ea04a" : "#c64343"
+            color: match.win ? AppTheme.win : AppTheme.loss
         }
 
         RowLayout {
@@ -258,18 +252,18 @@ FluScrollablePage {
                     spacing: 4
                     FluText {
                         text: match.win ? qsTr("胜利") : qsTr("失败")
-                        color: match.win ? "#3ea04a" : "#c64343"
+                        color: match.win ? AppTheme.win : AppTheme.loss
                         font.bold: true
                     }
                     FluText {
                         text: Fmt.duration(match.gameDuration || 0)
-                        color: FluColors.Grey120
+                        color: AppTheme.textSecondary
                         font.pixelSize: 11
                     }
                 }
                 FluText {
                     text: Fmt.relativeTime(match.gameCreation)
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                     font.pixelSize: 11
                 }
             }
@@ -300,12 +294,12 @@ FluScrollablePage {
                 FluText { text: "CS " + (match.cs||0); font.pixelSize: 12 }
                 FluText {
                     text: Math.round((match.cs || 0) / Math.max(1, (match.gameDuration||1)/60)) + " / 分钟"
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                     font.pixelSize: 11
                 }
                 FluText {
                     text: Fmt.bigNum(match.gold||0) + qsTr(" 金币")
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                     font.pixelSize: 11
                 }
             }
@@ -315,7 +309,7 @@ FluScrollablePage {
             // action hint
             FluText {
                 text: qsTr("查看详情 →")
-                color: FluColors.Grey120
+                color: AppTheme.textSecondary
                 font.pixelSize: 11
             }
         }

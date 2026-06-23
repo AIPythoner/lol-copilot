@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 from typing import Any, Optional
 
@@ -53,6 +54,14 @@ RAW_MATCH_DETAIL_CACHE_LIMIT = 128
 MATCH_DETAIL_MIN_SKELETON_MS = 180
 MATCHES_DEFAULT_PAGE_SIZE = 20
 AI_CHUNK_FLUSH_INTERVAL_SEC = 0.08
+
+# Free AI relay (opgg-proxy). The app ships pointing at the hosted relay so
+# users get match analysis with zero config — no API key of their own. Power
+# users can still override by writing api_key + base_url + model into
+# settings.json (see _stream_openai_compat). Env vars let devs repoint locally.
+_AI_PROXY_URL = (os.environ.get("LOL_AI_PROXY_URL") or "https://opgg-proxy.onrender.com/ai/v1").rstrip("/")
+_AI_PROXY_KEY = os.environ.get("LOL_AI_PROXY_KEY") or "og_proxy_lolagent_9f4a7b3e2c8d1e6f5a0b9c4d2e7f3a8b"
+_AI_PROXY_MODEL = os.environ.get("LOL_AI_PROXY_MODEL") or "deepseek-v4-flash"
 
 AI_SYSTEM_PROMPT = (
     "你是一个 LOL 游戏分析师，擅长分析玩家战绩和给出游戏建议。"
@@ -290,6 +299,29 @@ class LcuBridge(QObject):
     @Property(str, notify=phaseChanged)
     def phase(self) -> str:  # type: ignore[override]
         return self._phase
+
+    # The LCU's idle gameflow phase is the literal string "None" (not an empty
+    # value), so the UI can't just fall back with `phase || "-"`. Map the raw
+    # enum to a friendly Chinese label; "" means the client isn't connected.
+    _PHASE_LABELS = {
+        "": "未连接客户端",
+        "None": "空闲中",
+        "Lobby": "房间中",
+        "Matchmaking": "匹配中",
+        "ReadyCheck": "确认对局",
+        "ChampSelect": "选人中",
+        "GameStart": "进入游戏",
+        "InProgress": "游戏中",
+        "Reconnect": "重连中",
+        "WaitingForStats": "结算中",
+        "PreEndOfGame": "对局结束",
+        "EndOfGame": "对局结束",
+        "TerminatedInError": "异常退出",
+    }
+
+    @Property(str, notify=phaseChanged)
+    def phaseLabel(self) -> str:  # type: ignore[override]
+        return self._PHASE_LABELS.get(self._phase, self._phase or "空闲中")
 
     @Property("QVariant", notify=matchesChanged)
     def matches(self) -> list:  # type: ignore[override]
@@ -789,17 +821,20 @@ class LcuBridge(QObject):
     # ----- QML-callable slots: AI match analysis -----
 
     @Slot(float, str, str)
-    def analyzeMatch(self, game_id: float, mode: str, target_puuid: str) -> None:
+    @Slot(float, str, str, bool)
+    def analyzeMatch(self, game_id: float, mode: str, target_puuid: str, force: bool = False) -> None:
         """Start (or replay from cache) an AI analysis of ``game_id``.
 
         ``mode`` is ``overview`` (full-team breakdown) or ``player`` (focus
-        on ``target_puuid``). If another analysis is already streaming we
-        cancel it first — the dialog can only host one session at a time.
+        on ``target_puuid``). ``force`` bypasses the session cache so the
+        "重新生成" button produces a fresh result instead of replaying the last
+        one. If another analysis is already streaming we cancel it first — the
+        dialog can only host one session at a time.
         """
         gid = int(game_id)
         self._cancel_ai_task()
         self._ai_task = self._spawn(
-            self._analyze_match(gid, mode or "overview", (target_puuid or "").strip()),
+            self._analyze_match(gid, mode or "overview", (target_puuid or "").strip(), bool(force)),
             name="bridge-ai-analyze",
         )
 
@@ -1852,10 +1887,10 @@ class LcuBridge(QObject):
         if task is not None and not task.done():
             task.cancel()
 
-    async def _analyze_match(self, game_id: int, mode: str, target_puuid: str) -> None:
+    async def _analyze_match(self, game_id: int, mode: str, target_puuid: str, force: bool = False) -> None:
         ai = self._settings.ai
-        if not ai.enabled or not ai.api_key or not ai.base_url or not ai.model:
-            self.aiAnalysisError.emit("请先在“设置”里启用 AI 并填写 base_url / api_key / model")
+        if not ai.enabled:
+            self.aiAnalysisError.emit("AI 战绩复盘已关闭，可在“设置”里开启")
             return
         if game_id <= 0:
             self.aiAnalysisError.emit("无效的对局 ID")
@@ -1866,7 +1901,7 @@ class LcuBridge(QObject):
             return
 
         cache_key = (game_id, mode, target_puuid if mode == "player" else "")
-        cached = self._ai_cache.get(cache_key)
+        cached = None if force else self._ai_cache.get(cache_key)
 
         self.aiAnalysisStarted.emit(str(game_id), mode)
         if cached is not None:
@@ -1928,10 +1963,14 @@ class LcuBridge(QObject):
         the aggregated assistant content once the stream terminates so the
         caller can cache it.
         """
-        ai = self._settings.ai
-        url = ai.base_url.rstrip("/") + "/chat/completions"
+        # Always go through the free hosted relay — end users never supply a
+        # key, and a stale custom endpoint left in settings.json must NOT hijack
+        # it. Devs can repoint with the LOL_AI_PROXY_* env vars.
+        url = _AI_PROXY_URL + "/chat/completions"
+        model = _AI_PROXY_MODEL
+        auth_key = _AI_PROXY_KEY
         body = {
-            "model": ai.model,
+            "model": model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -1940,7 +1979,7 @@ class LcuBridge(QObject):
             "temperature": 0.3,
         }
         headers = {
-            "Authorization": f"Bearer {ai.api_key}",
+            "Authorization": f"Bearer {auth_key}",
             "Content-Type": "application/json",
             "Accept": "text/event-stream",
         }

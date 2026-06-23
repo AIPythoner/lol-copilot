@@ -27,10 +27,11 @@ FluScrollablePage {
         spacing: 14
 
         // ----- theme -----
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: 64
             paddings: 14
+            radius: AppTheme.radiusLg
             RowLayout {
                 anchors.fill: parent
                 FluText { text: qsTr("深色模式") }
@@ -46,10 +47,11 @@ FluScrollablePage {
         }
 
         // ----- OP.GG prefs -----
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: opggCol.implicitHeight + 32
             paddings: 14
+            radius: AppTheme.radiusLg
             ColumnLayout {
                 id: opggCol
                 anchors.left: parent.left
@@ -86,10 +88,11 @@ FluScrollablePage {
         }
 
         // ----- client customization -----
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: custCol.implicitHeight + 32
             paddings: 14
+            radius: AppTheme.radiusLg
             ColumnLayout {
                 id: custCol
                 anchors.left: parent.left
@@ -116,75 +119,66 @@ FluScrollablePage {
         }
 
         // ----- AI analysis config -----
-        FluArea {
+        GlassCard {
+            id: aiCard
             Layout.fillWidth: true
             Layout.preferredHeight: aiCol.implicitHeight + 32
             paddings: 14
+            radius: AppTheme.radiusLg
 
-            property var ai: (Lcu.settings && Lcu.settings.ai) || {}
+            // Read via this id (not a fragile parent.parent chain).
+            readonly property var ai: (Lcu.settings && Lcu.settings.ai) || ({})
 
             ColumnLayout {
                 id: aiCol
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.top: parent.top
-                spacing: 10
+                spacing: 8
 
                 RowLayout {
                     Layout.fillWidth: true
-                    FluText { text: qsTr("AI 战绩复盘"); font: FluTextStyle.Subtitle }
+                    ColumnLayout {
+                        spacing: 3
+                        RowLayout {
+                            spacing: AppTheme.sp2
+                            FluText { text: qsTr("AI 战绩复盘"); font: FluTextStyle.Subtitle }
+                            Rectangle {
+                                radius: AppTheme.radiusPill
+                                color: AppTheme.accentGlass
+                                border.width: 1
+                                border.color: AppTheme.accentGlassBorder
+                                implicitWidth: freeTag.implicitWidth + 16
+                                implicitHeight: freeTag.implicitHeight + 6
+                                Layout.alignment: Qt.AlignVCenter
+                                FluText {
+                                    id: freeTag
+                                    anchors.centerIn: parent
+                                    text: qsTr("免费")
+                                    color: AppTheme.accentBright
+                                    font.pixelSize: 10
+                                    font.bold: true
+                                }
+                            }
+                        }
+                        FluText {
+                            text: qsTr("由 DeepSeek 提供，开箱即用，无需配置 API Key。")
+                            color: AppTheme.textSecondary
+                            font.pixelSize: 11
+                        }
+                    }
                     Item { Layout.fillWidth: true }
                     FluToggleSwitch {
-                        checked: (parent.parent.ai.enabled === true)
+                        checked: aiCard.ai.enabled === true
                         onClicked: Lcu.updateAiConfig({"enabled": checked})
                     }
                 }
                 FluText {
-                    text: qsTr("兼容 OpenAI chat/completions 协议的任一端点都可以——DeepSeek / OpenRouter / OneAPI / 本地 LM Studio 都行。Key 只存本地。")
-                    color: FluColors.Grey120
+                    text: qsTr("在「对局详情」页点「AI 复盘」即可使用。免费额度按 IP 限制，请合理使用；分析结果仅供参考。")
+                    color: AppTheme.textSecondary
                     font.pixelSize: 11
                     wrapMode: Text.WordWrap
                     Layout.fillWidth: true
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    FluText { text: qsTr("Base URL"); Layout.preferredWidth: 80 }
-                    FluTextBox {
-                        id: tbBaseUrl
-                        Layout.fillWidth: true
-                        placeholderText: "https://api.deepseek.com/v1"
-                        text: aiCol.parent.ai.base_url || ""
-                    }
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    FluText { text: qsTr("模型"); Layout.preferredWidth: 80 }
-                    FluTextBox {
-                        id: tbModel
-                        Layout.fillWidth: true
-                        placeholderText: "deepseek-chat / gpt-4o-mini / qwen-max ..."
-                        text: aiCol.parent.ai.model || ""
-                    }
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    FluText { text: qsTr("API Key"); Layout.preferredWidth: 80 }
-                    FluTextBox {
-                        id: tbApiKey
-                        Layout.fillWidth: true
-                        placeholderText: "sk-..."
-                        echoMode: TextInput.Password
-                        text: aiCol.parent.ai.api_key || ""
-                    }
-                    FluFilledButton {
-                        text: qsTr("保存")
-                        onClicked: Lcu.updateAiConfig({
-                            "base_url": tbBaseUrl.text,
-                            "model": tbModel.text,
-                            "api_key": tbApiKey.text
-                        })
-                    }
                 }
             }
         }

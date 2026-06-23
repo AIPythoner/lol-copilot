@@ -24,35 +24,50 @@ FluScrollablePage {
 
     ColumnLayout {
         width: parent.width
-        spacing: 16
+        spacing: AppTheme.sp4
 
         // ===== profile banner =====
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
-            Layout.preferredHeight: 130
-            paddings: 16
+            Layout.preferredHeight: 138
+            paddings: AppTheme.sp5
+            radius: AppTheme.radiusLg
 
             RowLayout {
                 anchors.fill: parent
-                spacing: 18
+                spacing: AppTheme.sp5
 
                 ProfileIcon {
                     iconId: summoner.profileIconId || 0
                     level: summoner.summonerLevel || 0
-                    size: 84
+                    size: 92
                     Layout.alignment: Qt.AlignVCenter
                 }
 
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.alignment: Qt.AlignVCenter
-                    spacing: 6
+                    spacing: AppTheme.sp2
 
                     RowLayout {
-                        spacing: 10
-                        Rectangle {
-                            width: 12; height: 12; radius: 6
-                            color: Lcu.connected ? "#3ea04a" : "#c64343"
+                        spacing: AppTheme.sp3
+                        // status dot with soft halo
+                        Item {
+                            width: 14; height: 14
+                            Layout.alignment: Qt.AlignVCenter
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: 14; height: 14; radius: 7
+                                color: "transparent"
+                                border.width: 4
+                                border.color: Lcu.connected ? AppTheme.positive : AppTheme.negative
+                                opacity: 0.22
+                            }
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: 9; height: 9; radius: 4.5
+                                color: Lcu.connected ? AppTheme.positive : AppTheme.negative
+                            }
                         }
                         FluText {
                             text: (summoner.gameName || summoner.displayName)
@@ -65,20 +80,33 @@ FluScrollablePage {
                         }
                     }
 
-                    FluText {
+                    RowLayout {
+                        spacing: AppTheme.sp2
                         visible: page.dataReady
-                        text: qsTr("等级 ") + (summoner.summonerLevel || 0)
-                        color: FluColors.Grey120
+                        // level pill
+                        Rectangle {
+                            radius: AppTheme.radiusPill
+                            color: AppTheme.accentGlass
+                            border.width: 1
+                            border.color: AppTheme.accentGlassBorder
+                            implicitWidth: lvlText.implicitWidth + 20
+                            implicitHeight: lvlText.implicitHeight + 8
+                            FluText {
+                                id: lvlText
+                                anchors.centerIn: parent
+                                text: qsTr("等级 ") + (summoner.summonerLevel || 0)
+                                color: AppTheme.accentBright
+                                font.pixelSize: 12
+                                font.bold: true
+                            }
+                        }
                     }
                 }
 
-                ColumnLayout {
-                    spacing: 6
+                FluFilledButton {
+                    text: qsTr("刷新")
                     Layout.alignment: Qt.AlignVCenter
-                    FluFilledButton {
-                        text: qsTr("刷新")
-                        onClicked: Lcu.refresh()
-                    }
+                    onClicked: Lcu.refresh()
                 }
             }
         }
@@ -88,25 +116,27 @@ FluScrollablePage {
             text: qsTr("段位")
             font: FluTextStyle.Subtitle
             visible: page.dataReady
+            Layout.topMargin: AppTheme.sp1
         }
 
         GridLayout {
             Layout.fillWidth: true
             columns: 3
-            rowSpacing: 10
-            columnSpacing: 10
+            rowSpacing: AppTheme.sp3
+            columnSpacing: AppTheme.sp3
             visible: page.dataReady
 
             Repeater {
                 model: rankedQueues
-                delegate: FluArea {
+                delegate: GlassCard {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 128
-                    paddings: 12
+                    Layout.preferredHeight: 130
+                    paddings: AppTheme.sp3
+                    hoverable: true
 
                     RowLayout {
                         anchors.fill: parent
-                        spacing: 10
+                        spacing: AppTheme.sp2
                         clip: false
 
                         // Layout slot stays moderate so the right-hand text
@@ -142,17 +172,17 @@ FluScrollablePage {
                             spacing: 3
                             FluText {
                                 text: _queueLabel(modelData.queueType)
-                                color: FluColors.Grey120
+                                color: AppTheme.textSecondary
                                 font.pixelSize: 11
                             }
                             FluText {
                                 text: _tierLabel(modelData.tier, modelData.division)
                                 font: FluTextStyle.Subtitle
-                                color: _tierColor(modelData.tier)
+                                color: AppTheme.tierColor(modelData.tier)
                             }
                             FluText {
                                 text: (modelData.leaguePoints || 0) + qsTr(" 胜点")
-                                color: FluColors.Grey120
+                                color: AppTheme.textSecondary
                                 font.pixelSize: 12
                             }
                             FluText {
@@ -160,7 +190,7 @@ FluScrollablePage {
                                     + ((modelData.wins||0)+(modelData.losses||0) > 0
                                         ? Math.round(100 * modelData.wins / (modelData.wins+modelData.losses))
                                         : 0) + "%"
-                                color: FluColors.Grey120
+                                color: AppTheme.textSecondary
                                 font.pixelSize: 11
                             }
                         }
@@ -168,15 +198,15 @@ FluScrollablePage {
                 }
             }
 
-            FluArea {
+            GlassCard {
                 visible: rankedQueues.length === 0
                 Layout.fillWidth: true
                 Layout.preferredHeight: 80
-                paddings: 14
+                paddings: AppTheme.sp4
                 FluText {
                     anchors.centerIn: parent
                     text: qsTr("暂无段位数据")
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                 }
             }
         }
@@ -186,36 +216,47 @@ FluScrollablePage {
             text: qsTr("最近 20 场")
             font: FluTextStyle.Subtitle
             visible: page.dataReady
+            Layout.topMargin: AppTheme.sp1
         }
 
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
-            Layout.preferredHeight: 96
-            paddings: 14
+            Layout.preferredHeight: 100
+            paddings: AppTheme.sp4
             visible: page.dataReady
 
             RowLayout {
                 anchors.fill: parent
-                spacing: 4
+                spacing: AppTheme.sp1
 
                 Repeater {
                     model: recentMatches
-                    delegate: ColumnLayout {
-                        spacing: 4
-                        ChampionIcon {
-                            championId: modelData.championId || 0
-                            size: 40
-                            showTooltip: true
-                        }
-                        Rectangle {
-                            Layout.preferredWidth: 40
-                            Layout.preferredHeight: 4
-                            radius: 2
-                            color: modelData.win ? "#3ea04a" : "#c64343"
+                    delegate: Item {
+                        Layout.preferredWidth: 40
+                        Layout.preferredHeight: 60
+                        scale: tileHover.containsMouse ? 1.08 : 1.0
+                        Behavior on scale { NumberAnimation { duration: AppTheme.durFast; easing.type: AppTheme.easeStd } }
+
+                        ColumnLayout {
+                            anchors.centerIn: parent
+                            spacing: AppTheme.sp1
+                            ChampionIcon {
+                                championId: modelData.championId || 0
+                                size: 40
+                                showTooltip: true
+                            }
+                            Rectangle {
+                                Layout.preferredWidth: 40
+                                Layout.preferredHeight: 4
+                                radius: 2
+                                color: modelData.win ? AppTheme.win : AppTheme.loss
+                            }
                         }
 
                         MouseArea {
+                            id: tileHover
                             anchors.fill: parent
+                            hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: Lcu.openMatchDetail(modelData.gameId)
                         }
@@ -231,17 +272,18 @@ FluScrollablePage {
             text: qsTr("快速操作")
             font: FluTextStyle.Subtitle
             visible: page.dataReady
+            Layout.topMargin: AppTheme.sp1
         }
 
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
-            Layout.preferredHeight: 72
-            paddings: 14
+            Layout.preferredHeight: 74
+            paddings: AppTheme.sp4
             visible: page.dataReady
 
             RowLayout {
                 anchors.fill: parent
-                spacing: 10
+                spacing: AppTheme.sp3
 
                 FluButton {
                     text: qsTr("接受对局")
@@ -260,21 +302,21 @@ FluScrollablePage {
                 Item { Layout.fillWidth: true }
                 FluText {
                     text: qsTr("更多自动动作见左下设置")
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                     font.pixelSize: 11
                 }
             }
         }
 
-        FluArea {
+        GlassCard {
             visible: !page.dataReady
             Layout.fillWidth: true
-            Layout.preferredHeight: 96
-            paddings: 16
+            Layout.preferredHeight: 100
+            paddings: AppTheme.sp5
 
             ColumnLayout {
                 anchors.centerIn: parent
-                spacing: 4
+                spacing: AppTheme.sp1
                 FluText {
                     Layout.alignment: Qt.AlignHCenter
                     text: Lcu.connected
@@ -327,21 +369,5 @@ FluScrollablePage {
         if (!t || t === "UNRANKED" || t === "NONE") return qsTr("未定级")
         var label = names[t] || t
         return division ? label + " " + division : label
-    }
-
-    function _tierColor(tier) {
-        switch ((tier || "").toUpperCase()) {
-            case "IRON": return "#7d6c5e"
-            case "BRONZE": return "#a07048"
-            case "SILVER": return "#9faebd"
-            case "GOLD": return "#d4a04a"
-            case "PLATINUM": return "#5ac8b5"
-            case "EMERALD": return "#3ea04a"
-            case "DIAMOND": return "#4684d4"
-            case "MASTER": return "#b964e0"
-            case "GRANDMASTER": return "#e06c75"
-            case "CHALLENGER": return "#f8d458"
-            default: return FluColors.Grey120
-        }
     }
 }

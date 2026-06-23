@@ -17,3 +17,7 @@ logs/
 *.jsc
 _refs/
 
+# Local build artifacts & marketing assets (not part of the source tree)
+output/
+宣传素材/
+

@@ -1,4 +1,7 @@
 module components
+singleton AppTheme 1.0 AppTheme.qml
+GlassCard 1.0 GlassCard.qml
+GlassBackground 1.0 GlassBackground.qml
 AppNavigationView 1.0 AppNavigationView.qml
 ChampionIcon 1.0 ChampionIcon.qml
 ItemSlot 1.0 ItemSlot.qml

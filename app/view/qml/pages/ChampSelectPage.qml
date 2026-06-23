@@ -34,7 +34,7 @@ FluScrollablePage {
 
     ColumnLayout {
         width: parent.width
-        spacing: 14
+        spacing: AppTheme.sp4
 
         // ===== status header =====
         RowLayout {
@@ -43,14 +43,14 @@ FluScrollablePage {
                 text: Lcu.phase === "ChampSelect"
                     ? qsTr("选人中")
                       + (sel.phase ? "  ·  " + sel.phase : "")
-                    : qsTr("当前不在选人阶段：") + (Lcu.phase || "-")
+                    : qsTr("当前不在选人阶段（") + Lcu.phaseLabel + "）"
                 font: FluTextStyle.Subtitle
             }
             Item { Layout.fillWidth: true }
             FluText {
                 visible: preGroups.length > 0
                 text: qsTr("检测到 ") + preGroups.length + qsTr(" 个开黑组")
-                color: "#d4a04a"
+                color: AppTheme.accent
                 font.pixelSize: 12
             }
             FluButton {
@@ -61,17 +61,17 @@ FluScrollablePage {
         }
 
         // ===== bans =====
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: 68
-            paddings: 10
+            paddings: AppTheme.sp3
             visible: bansData !== undefined
 
             RowLayout {
                 anchors.fill: parent
-                spacing: 16
+                spacing: AppTheme.sp4
 
-                FluText { text: qsTr("禁用"); color: FluColors.Grey120 }
+                FluText { text: qsTr("禁用"); color: AppTheme.textSecondary }
 
                 RowLayout {
                     spacing: 6
@@ -98,12 +98,12 @@ FluScrollablePage {
         // ===== teams side by side =====
         RowLayout {
             Layout.fillWidth: true
-            spacing: 14
+            spacing: AppTheme.sp4
 
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
-                spacing: 8
+                spacing: AppTheme.sp2
                 FluText {
                     text: qsTr("我方")
                     font: FluTextStyle.Subtitle
@@ -118,7 +118,7 @@ FluScrollablePage {
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
-                spacing: 8
+                spacing: AppTheme.sp2
                 FluText {
                     text: qsTr("敌方")
                     font: FluTextStyle.Subtitle
@@ -137,7 +137,7 @@ FluScrollablePage {
                 ? qsTr("等待选人会话…")
                 : qsTr("请先连接客户端")
             Layout.alignment: Qt.AlignHCenter
-            color: FluColors.Grey120
+            color: AppTheme.textSecondary
         }
     }
 
@@ -173,12 +173,13 @@ FluScrollablePage {
         }
     }
 
-    component PlayerCard: FluArea {
+    component PlayerCard: GlassCard {
         id: card
         property var player: ({})
         Layout.fillWidth: true
         Layout.preferredHeight: 96
         paddings: 0
+        hoverable: !!player.puuid
 
         // pregroup accent
         Rectangle {
@@ -249,13 +250,13 @@ FluScrollablePage {
                     spacing: 6
                     FluText {
                         text: qsTr("胜率 ") + Math.round((player.recent_win_rate||0)*100) + "%"
-                        color: (player.recent_win_rate||0) >= 0.55 ? "#3ea04a"
-                             : (player.recent_win_rate||0) >= 0.45 ? FluColors.Grey120 : "#c64343"
+                        color: (player.recent_win_rate||0) >= 0.55 ? AppTheme.win
+                             : (player.recent_win_rate||0) >= 0.45 ? AppTheme.textSecondary : AppTheme.loss
                         font.pixelSize: 11
                     }
                     FluText {
                         text: "  KDA " + (player.avg_kda || 0)
-                        color: FluColors.Grey120
+                        color: AppTheme.textSecondary
                         font.pixelSize: 11
                     }
                 }

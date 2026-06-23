@@ -101,10 +101,11 @@ FluScrollablePage {
         spacing: 14
 
         // ===== query panel =====
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: queryCol.implicitHeight + 28
             paddings: 14
+            radius: AppTheme.radiusLg
 
             ColumnLayout {
                 id: queryCol
@@ -208,7 +209,7 @@ FluScrollablePage {
                                             }
                                             FluText {
                                                 text: modelData.alias
-                                                color: FluColors.Grey120
+                                                color: AppTheme.textSecondary
                                                 font.pixelSize: 11
                                             }
                                         }
@@ -229,7 +230,7 @@ FluScrollablePage {
                                         anchors.centerIn: parent
                                         visible: suggestPopup.hits.length === 0 && champBox.text.length > 0
                                         text: qsTr("没有匹配的英雄")
-                                        color: FluColors.Grey120
+                                        color: AppTheme.textSecondary
                                         font.pixelSize: 12
                                     }
                                 }
@@ -275,17 +276,18 @@ FluScrollablePage {
                 FluText {
                     visible: champions.length === 0
                     text: qsTr("提示：需要先连接客户端才能加载英雄列表")
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                     font.pixelSize: 11
                 }
             }
         }
 
         // ===== header for result =====
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: 70
             paddings: 12
+            radius: AppTheme.radiusLg
             visible: !!build.champion
 
             RowLayout {
@@ -305,7 +307,7 @@ FluScrollablePage {
                     FluText {
                         text: qsTr("版本 ") + (build.patch || "-")
                             + (build.position ? "  ·  " + build.position : "")
-                        color: FluColors.Grey120
+                        color: AppTheme.textSecondary
                         font.pixelSize: 11
                     }
                 }
@@ -340,17 +342,18 @@ FluScrollablePage {
         FluText {
             visible: !build.champion
             text: qsTr("选择英雄后点击查询。首次网络请求可能需要 10–15 秒。")
-            color: FluColors.Grey120
+            color: AppTheme.textSecondary
             Layout.alignment: Qt.AlignHCenter
         }
     }
 
     // ===== components =====
-    component VariantCard: FluArea {
+    component VariantCard: GlassCard {
         id: card
         property var variant: ({})
         Layout.preferredHeight: variantCol.implicitHeight + 24
         paddings: 12
+        radius: AppTheme.radiusLg
 
         ColumnLayout {
             id: variantCol
@@ -365,7 +368,7 @@ FluScrollablePage {
                     Layout.preferredWidth: 4
                     Layout.preferredHeight: 20
                     radius: 2
-                    color: "#d4a04a"
+                    color: AppTheme.accent
                 }
                 FluText {
                     text: variant.name || ""
@@ -404,7 +407,7 @@ FluScrollablePage {
                 FluText {
                     Layout.preferredWidth: 70
                     text: qsTr("召唤师")
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                     font.pixelSize: 12
                 }
                 RowLayout {
@@ -424,7 +427,7 @@ FluScrollablePage {
                 FluText {
                     Layout.preferredWidth: 70
                     text: qsTr("符文")
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                     font.pixelSize: 12
                 }
                 RuneRow {
@@ -441,7 +444,7 @@ FluScrollablePage {
         FluText {
             Layout.preferredWidth: 70
             text: label
-            color: FluColors.Grey120
+            color: AppTheme.textSecondary
             font.pixelSize: 12
         }
         Repeater {
@@ -451,7 +454,7 @@ FluScrollablePage {
         FluText {
             visible: !ids || ids.length === 0
             text: qsTr("—")
-            color: FluColors.Grey120
+            color: AppTheme.textSecondary
         }
         Item { Layout.fillWidth: true }
     }
@@ -484,7 +487,7 @@ FluScrollablePage {
             visible: runePage && runePage.sub
             Layout.preferredWidth: 1
             Layout.preferredHeight: 24
-            color: FluColors.Grey120
+            color: AppTheme.textSecondary
             opacity: 0.3
         }
 
@@ -512,7 +515,7 @@ FluScrollablePage {
             visible: runePage && runePage.perks && runePage.perks.length > 6
             Layout.preferredWidth: 1
             Layout.preferredHeight: 24
-            color: FluColors.Grey120
+            color: AppTheme.textSecondary
             opacity: 0.3
         }
 

@@ -28,16 +28,16 @@ FluScrollablePage {
 
     ColumnLayout {
         width: parent.width
-        spacing: 12
+        spacing: AppTheme.sp3
 
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: 68
-            paddings: 12
+            paddings: AppTheme.sp3
 
             RowLayout {
                 anchors.fill: parent
-                spacing: 10
+                spacing: AppTheme.sp3
 
                 FluToggleButton {
                     text: qsTr("分析 100 场")
@@ -58,9 +58,9 @@ FluScrollablePage {
                     }
                 }
 
-                Rectangle { width: 1; height: 24; color: FluColors.Grey120; opacity: 0.3 }
+                Rectangle { width: 1; height: 24; color: AppTheme.textSecondary; opacity: 0.3 }
 
-                FluText { text: qsTr("排序"); color: FluColors.Grey120; font.pixelSize: 12 }
+                FluText { text: qsTr("排序"); color: AppTheme.textSecondary; font.pixelSize: 12 }
                 FluToggleButton {
                     text: qsTr("场次")
                     checked: sortMode === 0
@@ -80,7 +80,7 @@ FluScrollablePage {
                 Item { Layout.fillWidth: true }
                 FluText {
                     text: qsTr("共 ") + sortedPool.length + qsTr(" 个英雄")
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                     font.pixelSize: 12
                 }
             }
@@ -89,8 +89,8 @@ FluScrollablePage {
         GridLayout {
             Layout.fillWidth: true
             columns: Math.max(4, Math.floor(width / 140))
-            columnSpacing: 10
-            rowSpacing: 10
+            columnSpacing: AppTheme.sp3
+            rowSpacing: AppTheme.sp3
 
             Repeater {
                 model: sortedPool
@@ -102,16 +102,16 @@ FluScrollablePage {
             visible: sortedPool.length === 0
             text: Lcu.connected ? qsTr("请点击按钮开始分析") : qsTr("请先连接客户端")
             Layout.alignment: Qt.AlignHCenter
-            color: FluColors.Grey120
+            color: AppTheme.textSecondary
         }
     }
 
-    component ChampCard: FluArea {
+    component ChampCard: GlassCard {
         id: card
         property var stat: ({})
         Layout.preferredHeight: 150
         Layout.fillWidth: true
-        paddings: 10
+        paddings: AppTheme.sp3
 
         ColumnLayout {
             anchors.fill: parent
@@ -139,13 +139,13 @@ FluScrollablePage {
                 spacing: 6
                 FluText {
                     text: stat.games + qsTr(" 场")
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                     font.pixelSize: 11
                 }
                 FluText {
                     text: Math.round(stat.winRate * 100) + "%"
-                    color: stat.winRate >= 0.55 ? "#3ea04a"
-                         : stat.winRate >= 0.45 ? FluColors.Grey120 : "#c64343"
+                    color: stat.winRate >= 0.55 ? AppTheme.win
+                         : stat.winRate >= 0.45 ? AppTheme.textSecondary : AppTheme.loss
                     font.pixelSize: 11
                     font.bold: true
                 }
@@ -154,7 +154,7 @@ FluScrollablePage {
             FluText {
                 Layout.alignment: Qt.AlignHCenter
                 text: "KDA " + stat.kda + "   (" + stat.avgKills + "/" + stat.avgDeaths + "/" + stat.avgAssists + ")"
-                color: FluColors.Grey120
+                color: AppTheme.textSecondary
                 font.pixelSize: 10
             }
         }

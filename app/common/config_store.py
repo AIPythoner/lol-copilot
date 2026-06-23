@@ -43,17 +43,17 @@ class WindowGeom:
 
 @dataclass
 class AiSettings:
-    """OpenAI-compatible endpoint config for match AI analysis.
+    """Match AI analysis config.
 
-    Defaults point at DeepSeek because their pricing (~$0.14 / 1M input
-    tokens) makes running this per-match affordable. Any OpenAI-compatible
-    gateway works — OpenRouter, One-API, or self-hosted vLLM / LM Studio —
-    so we keep the base_url and model fully user-editable.
+    Ships ON by default and routed through the free hosted relay (opgg-proxy),
+    so end users need no API key — see bridge.py `_AI_PROXY_*`. The fields below
+    stay for power users: writing a full custom OpenAI-compatible endpoint
+    (api_key + base_url + model) into settings.json overrides the relay.
     """
-    enabled: bool = False
-    base_url: str = "https://api.deepseek.com/v1"
+    enabled: bool = True
+    base_url: str = ""
     api_key: str = ""
-    model: str = "deepseek-chat"
+    model: str = ""
 
 
 @dataclass
@@ -62,11 +62,11 @@ class AppSettings:
     opgg: OpggSettings = field(default_factory=OpggSettings)
     window: WindowGeom = field(default_factory=WindowGeom)
     ai: AiSettings = field(default_factory=AiSettings)
-    dark_mode: str = "dark"  # "system" / "light" / "dark"
+    dark_mode: str = "light"  # "light" / "dark" — first-launch default is light
     # Bumped whenever we need to migrate older saved settings. Don't roll back
     # — older clients ignore unknown fields, newer clients use this to decide
     # whether a one-shot upgrade has already run.
-    schema_version: int = 2
+    schema_version: int = 3
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -87,9 +87,9 @@ class AppSettings:
         elif saved_height > 900:
             wnd_raw = dict(wnd_raw)
             wnd_raw["height"] = 660
-        dark_mode = raw.get("dark_mode", "dark")
+        dark_mode = raw.get("dark_mode", "light")
         if dark_mode not in ("dark", "light"):
-            dark_mode = "dark"
+            dark_mode = "light"
         try:
             schema_version = int(raw.get("schema_version") or 0)
         except (TypeError, ValueError):
@@ -105,13 +105,25 @@ class AppSettings:
         }
         if schema_version < 2:
             aa_filtered["send_team_winrate"] = True
+        ai_filtered = {k: v for k, v in ai_raw.items() if k in AiSettings.__dataclass_fields__}
+        # v3 migration: AI match analysis became a free, zero-config hosted relay
+        # (no user key needed), so enable it for everyone upgrading from <3 (the
+        # old default was off + required a self-supplied key). Also clear any
+        # stale custom endpoint so an old self-hosted base_url/key can't quietly
+        # override the free relay. A user who later turns it off keeps that
+        # choice on v3+.
+        if schema_version < 3:
+            ai_filtered["enabled"] = True
+            ai_filtered["api_key"] = ""
+            ai_filtered["base_url"] = ""
+            ai_filtered["model"] = ""
         return cls(
             auto_actions=AutoActionSettings(**aa_filtered),
             opgg=OpggSettings(**{k: v for k, v in op_raw.items() if k in OpggSettings.__dataclass_fields__}),
             window=WindowGeom(**{k: v for k, v in wnd_raw.items() if k in WindowGeom.__dataclass_fields__}),
-            ai=AiSettings(**{k: v for k, v in ai_raw.items() if k in AiSettings.__dataclass_fields__}),
+            ai=AiSettings(**ai_filtered),
             dark_mode=dark_mode,
-            schema_version=max(schema_version, 2),
+            schema_version=max(schema_version, 3),
         )
 
 

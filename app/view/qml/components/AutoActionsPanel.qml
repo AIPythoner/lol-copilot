@@ -3,11 +3,12 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import FluentUI
 
-FluArea {
+GlassCard {
     id: root
     Layout.fillWidth: true
     Layout.preferredHeight: autoCol.implicitHeight + 32
     paddings: 14
+    radius: AppTheme.radiusLg
 
     property string editingField: ""
     property var editingIds: []
@@ -80,7 +81,7 @@ FluArea {
                 FluText { text: qsTr("选人时发送队友胜率") }
                 FluText {
                     text: qsTr("进入选人后，把队友最近 20 场胜率发送到冠军选择聊天框")
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                     font.pixelSize: 11
                 }
             }
@@ -164,7 +165,7 @@ FluArea {
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
             text: label
-            color: FluColors.Grey120
+            color: AppTheme.textSecondary
             font.pixelSize: 12
         }
 
@@ -185,7 +186,7 @@ FluArea {
             FluText {
                 visible: !ids || ids.length === 0
                 text: qsTr("未选择任何英雄")
-                color: FluColors.Grey120
+                color: AppTheme.textSecondary
                 font.pixelSize: 12
             }
         }
@@ -223,7 +224,7 @@ FluArea {
                     }
                     FluText {
                         text: qsTr("已选 ") + (root.editingIds || []).length + qsTr(" 个")
-                        color: FluColors.Grey120
+                        color: AppTheme.textSecondary
                         font.pixelSize: 11
                     }
                 }
@@ -296,7 +297,7 @@ FluArea {
                 FluText {
                     visible: root.champions.length === 0
                     text: qsTr("英雄列表未加载，请先连接客户端")
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                 }
             }
         }

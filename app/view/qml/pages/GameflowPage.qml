@@ -17,18 +17,19 @@ FluScrollablePage {
 
     ColumnLayout {
         width: parent.width
-        spacing: 14
+        spacing: AppTheme.sp4
 
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: 100
-            paddings: 16
+            paddings: AppTheme.sp4
+            radius: AppTheme.radiusLg
             ColumnLayout {
                 anchors.fill: parent
-                spacing: 4
+                spacing: AppTheme.sp1
                 FluText { text: qsTr("当前阶段"); font: FluTextStyle.Subtitle }
                 FluText {
-                    text: Lcu.phase || "-"
+                    text: Lcu.phaseLabel
                     font: FluTextStyle.Title
                 }
             }
@@ -66,18 +67,19 @@ FluScrollablePage {
         FluText {
             visible: myTeam.length === 0
             text: qsTr("未在对局中。进入对局后此处会保留选人时的阵容信息。")
-            color: FluColors.Grey120
+            color: AppTheme.textSecondary
             Layout.alignment: Qt.AlignHCenter
         }
     }
 
-    component PlayerRow: FluArea {
+    component PlayerRow: GlassCard {
         property var player: ({})
         property string accent: "#4684d4"
         property bool hidden: (player.display_name || "?") === "???"
         Layout.preferredHeight: 72
-        paddings: 10
+        paddings: AppTheme.sp3
         opacity: hidden ? 0.55 : 1.0
+        hoverable: !!player.puuid
 
         MouseArea {
             anchors.fill: parent
@@ -115,7 +117,7 @@ FluScrollablePage {
                 FluText {
                     visible: (player.summoner_level || 0) > 0
                     text: qsTr("等级 ") + (player.summoner_level || 0)
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                     font.pixelSize: 11
                 }
             }
@@ -133,7 +135,7 @@ FluScrollablePage {
                 spacing: 2
                 FluText {
                     text: qsTr("近 ") + ((player.recent || []).length) + qsTr(" 场胜率")
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                     font.pixelSize: 11
                 }
                 FluText {
@@ -148,9 +150,9 @@ FluScrollablePage {
     }
 
     function _winrateColor(r) {
-        if (!r) return FluColors.Grey120
-        if (r >= 0.6) return "#3ea04a"
-        if (r >= 0.5) return "#d4a04a"
-        return "#c64343"
+        if (!r) return AppTheme.textSecondary
+        if (r >= 0.6) return AppTheme.win
+        if (r >= 0.5) return AppTheme.accent
+        return AppTheme.loss
     }
 }

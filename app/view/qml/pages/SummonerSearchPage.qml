@@ -17,15 +17,16 @@ FluScrollablePage {
 
     ColumnLayout {
         width: parent.width
-        spacing: 14
+        spacing: AppTheme.sp4
 
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: 80
-            paddings: 14
+            paddings: AppTheme.sp3
+            radius: AppTheme.radiusLg
             RowLayout {
                 anchors.fill: parent
-                spacing: 10
+                spacing: AppTheme.sp3
                 FluTextBox {
                     Layout.fillWidth: true
                     placeholderText: qsTr("召唤师名 或 游戏名#TAG (如 Faker#KR1)")
@@ -43,7 +44,7 @@ FluScrollablePage {
 
         FluText {
             text: qsTr("输入后按回车或点击搜索。点击搜索结果会打开对方主页（可在主页继续查看历史对局详情）。")
-            color: FluColors.Grey120
+            color: AppTheme.textSecondary
             wrapMode: Text.Wrap
             Layout.fillWidth: true
             visible: Lcu.connected
@@ -52,7 +53,7 @@ FluScrollablePage {
         FluText {
             visible: !Lcu.connected
             text: qsTr("请先连接客户端")
-            color: FluColors.Grey120
+            color: AppTheme.textSecondary
             Layout.alignment: Qt.AlignHCenter
         }
     }

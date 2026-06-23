@@ -14,16 +14,17 @@ FluScrollablePage {
 
         FluText {
             text: qsTr("样例展示（LoL 客户端未运行时也能看见图片，直接从 Community Dragon CDN 加载）")
-            color: FluColors.Grey120
+            color: AppTheme.textSecondary
             wrapMode: Text.Wrap
             Layout.fillWidth: true
         }
 
         // ----- champion icons -----
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: 120
             paddings: 14
+            radius: AppTheme.radiusLg
             ColumnLayout {
                 anchors.fill: parent
                 FluText { text: qsTr("ChampionIcon / PositionIcon"); font: FluTextStyle.Subtitle }
@@ -45,10 +46,11 @@ FluScrollablePage {
         }
 
         // ----- items / spells / runes -----
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: 140
             paddings: 14
+            radius: AppTheme.radiusLg
             ColumnLayout {
                 anchors.fill: parent
                 FluText { text: qsTr("ItemRow / SpellPair / RuneBadge"); font: FluTextStyle.Subtitle }
@@ -66,10 +68,11 @@ FluScrollablePage {
         }
 
         // ----- tier badges -----
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: 180
             paddings: 14
+            radius: AppTheme.radiusLg
             ColumnLayout {
                 anchors.fill: parent
                 FluText { text: qsTr("TierBadge"); font: FluTextStyle.Subtitle }
@@ -93,10 +96,11 @@ FluScrollablePage {
         }
 
         // ----- score badges -----
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: 100
             paddings: 14
+            radius: AppTheme.radiusLg
             ColumnLayout {
                 anchors.fill: parent
                 FluText { text: qsTr("ScoreBadge"); font: FluTextStyle.Subtitle }
@@ -113,10 +117,11 @@ FluScrollablePage {
         }
 
         // ----- damage bars -----
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: 150
             paddings: 14
+            radius: AppTheme.radiusLg
             ColumnLayout {
                 anchors.fill: parent
                 FluText { text: qsTr("DamageBar"); font: FluTextStyle.Subtitle }
@@ -128,10 +133,11 @@ FluScrollablePage {
         }
 
         // ----- misc -----
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: 110
             paddings: 14
+            radius: AppTheme.radiusLg
             ColumnLayout {
                 anchors.fill: parent
                 FluText { text: qsTr("WinLossDots / QueueBadge / ProfileIcon"); font: FluTextStyle.Subtitle }

@@ -43,7 +43,7 @@ FluScrollablePage {
         visible: isLoading || notFound
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.verticalCenter: parent.verticalCenter
-        spacing: 16
+        spacing: AppTheme.sp4
 
         FluProgressRing {
             visible: isLoading
@@ -54,14 +54,14 @@ FluScrollablePage {
         FluText {
             visible: isLoading
             text: qsTr("加载召唤师资料…") + (result.query ? ("  " + result.query) : "")
-            color: FluColors.Grey120
+            color: AppTheme.textSecondary
             font: FluTextStyle.Subtitle
             Layout.alignment: Qt.AlignHCenter
         }
         FluText {
             visible: notFound
             text: qsTr("未找到：") + (result.error || "")
-            color: "#c64343"
+            color: AppTheme.loss
             Layout.alignment: Qt.AlignHCenter
         }
     }
@@ -70,13 +70,14 @@ FluScrollablePage {
     ColumnLayout {
         visible: !isLoading && !notFound && !!result.puuid
         width: parent.width
-        spacing: 14
+        spacing: AppTheme.sp4
 
         // ----- banner -----
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: 120
-            paddings: 16
+            paddings: AppTheme.sp4
+            radius: AppTheme.radiusLg
 
             RowLayout {
                 anchors.fill: parent
@@ -90,7 +91,7 @@ FluScrollablePage {
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: 4
+                    spacing: AppTheme.sp1
 
                     FluText {
                         text: (result.gameName || result.displayName || "?")
@@ -100,7 +101,7 @@ FluScrollablePage {
                     FluText {
                         text: qsTr("等级 ") + (result.summonerLevel || 0)
                             + "   PUUID " + ((result.puuid || "").slice(0, 8) + "…")
-                        color: FluColors.Grey120
+                        color: AppTheme.textSecondary
                         font.pixelSize: 11
                     }
                 }
@@ -118,19 +119,19 @@ FluScrollablePage {
             visible: ranked.length > 0
             Layout.fillWidth: true
             columns: 3
-            columnSpacing: 10
-            rowSpacing: 10
+            columnSpacing: AppTheme.sp3
+            rowSpacing: AppTheme.sp3
 
             Repeater {
                 model: ranked
-                delegate: FluArea {
+                delegate: GlassCard {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 112
-                    paddings: 14
+                    paddings: AppTheme.sp3
 
                     RowLayout {
                         anchors.fill: parent
-                        spacing: 14
+                        spacing: AppTheme.sp3
                         Item {
                             // Reserve a fixed slot so the layout can't shrink
                             // the emblem to its (much smaller) implicit size.
@@ -154,19 +155,19 @@ FluScrollablePage {
                             spacing: 3
                             FluText {
                                 text: _queueLabel(modelData.queueType)
-                                color: FluColors.Grey120
+                                color: AppTheme.textSecondary
                                 font.pixelSize: 11
                             }
                             FluText {
                                 text: _tierLabel(modelData.tier, modelData.division)
                                 font.bold: true
-                                color: _tierColor(modelData.tier)
+                                color: AppTheme.tierColor(modelData.tier)
                             }
                             FluText {
                                 text: (modelData.leaguePoints || 0) + qsTr(" 胜点  ")
                                     + (modelData.wins || 0) + qsTr("胜 ")
                                     + (modelData.losses || 0) + qsTr("负")
-                                color: FluColors.Grey120
+                                color: AppTheme.textSecondary
                                 font.pixelSize: 11
                             }
                         }
@@ -194,7 +195,7 @@ FluScrollablePage {
         FluText {
             visible: !isLoading && !notFound && !!result.puuid && matches.length === 0
             text: qsTr("无最近战绩")
-            color: FluColors.Grey120
+            color: AppTheme.textSecondary
             Layout.alignment: Qt.AlignHCenter
         }
     }
@@ -247,12 +248,13 @@ FluScrollablePage {
     }
 
     // MatchCard copied from MatchesPage — keep the layout consistent.
-    component MatchCard: FluArea {
+    component MatchCard: GlassCard {
         id: card
         property var match: ({})
-        signal clicked()
         Layout.preferredHeight: 80
         paddings: 0
+        hoverable: true
+        interactive: true
 
         // [PERF] Per-row KDA was being computed three times (text + the
         // parseFloat() inside the color binding which also called
@@ -260,20 +262,13 @@ FluScrollablePage {
         readonly property string kdaText: Fmt.kdaRatio(match.kills||0, match.deaths||0, match.assists||0)
         readonly property real kdaValue: parseFloat(card.kdaText)
 
-        MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: card.clicked()
-        }
-
         Rectangle {
             id: bar
             anchors.left: parent.left
             anchors.top: parent.top
             anchors.bottom: parent.bottom
             width: 5
-            color: match.win ? "#3ea04a" : "#c64343"
+            color: match.win ? AppTheme.win : AppTheme.loss
         }
 
         RowLayout {
@@ -292,12 +287,12 @@ FluScrollablePage {
                 QueueBadge { queueId: match.queueId || 0 }
                 FluText {
                     text: match.win ? qsTr("胜") : qsTr("败")
-                    color: match.win ? "#3ea04a" : "#c64343"
+                    color: match.win ? AppTheme.win : AppTheme.loss
                     font.bold: true
                 }
                 FluText {
                     text: Fmt.relativeTime(match.gameCreation)
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                     font.pixelSize: 11
                 }
             }
@@ -322,7 +317,7 @@ FluScrollablePage {
                 FluText { text: "CS " + (match.cs||0); font.pixelSize: 12 }
                 FluText {
                     text: Fmt.duration(match.gameDuration||0)
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                     font.pixelSize: 11
                 }
             }
@@ -331,7 +326,7 @@ FluScrollablePage {
 
             FluText {
                 text: qsTr("详情 →")
-                color: FluColors.Grey120
+                color: AppTheme.textSecondary
                 font.pixelSize: 11
             }
         }

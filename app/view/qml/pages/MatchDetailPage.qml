@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import FluentUI
+import "../components"
 
 FluScrollablePage {
     id: page
@@ -55,13 +56,6 @@ FluScrollablePage {
         height: (page.showLoadingState || page.hasError) ? Math.max(420, page.height - 96) : 0
         visible: page.showLoadingState || page.hasError
 
-        Rectangle {
-            anchors.fill: parent
-            visible: page.showLoadingState
-            color: FluTheme.dark ? "#0f1116" : "#f7f8fb"
-            opacity: 0.92
-        }
-
         ColumnLayout {
             visible: page.showLoadingState
             anchors.fill: parent
@@ -70,11 +64,11 @@ FluScrollablePage {
 
             Repeater {
                 model: 2
-                delegate: FluArea {
+                delegate: GlassCard {
                     Layout.fillWidth: true
                     Layout.preferredHeight: index === 0 ? 90 : 52
                     paddings: 16
-                    color: FluTheme.dark ? "#171a22" : "#ffffff"
+                    sheen: false
                     opacity: 0.74 + page.loadingPulse * 0.14
 
                     ColumnLayout {
@@ -84,14 +78,14 @@ FluScrollablePage {
                             width: index === 0 ? 220 : 120
                             height: index === 0 ? 14 : 12
                             radius: height / 2
-                            color: FluTheme.dark ? "#2a2f3b" : "#e4e8f0"
+                            color: AppTheme.skeleton
                         }
                         Rectangle {
                             visible: index === 0
                             width: 160
                             height: 11
                             radius: height / 2
-                            color: FluTheme.dark ? "#2a2f3b" : "#e4e8f0"
+                            color: AppTheme.skeleton
                         }
                     }
                 }
@@ -99,11 +93,11 @@ FluScrollablePage {
 
             Repeater {
                 model: 10
-                delegate: FluArea {
+                delegate: GlassCard {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 76
                     paddings: 12
-                    color: FluTheme.dark ? "#171a22" : "#ffffff"
+                    sheen: false
                     opacity: 0.70 + page.loadingPulse * 0.16
 
                     RowLayout {
@@ -114,25 +108,25 @@ FluScrollablePage {
                             width: 48
                             height: 48
                             radius: 24
-                            color: FluTheme.dark ? "#252b36" : "#dfe5ef"
+                            color: AppTheme.skeletonStrong
                         }
                         Rectangle {
                             width: 88
                             height: 12
                             radius: 6
-                            color: FluTheme.dark ? "#2a2f3b" : "#e4e8f0"
+                            color: AppTheme.skeleton
                         }
                         Rectangle {
                             width: 72
                             height: 12
                             radius: 6
-                            color: FluTheme.dark ? "#2a2f3b" : "#e4e8f0"
+                            color: AppTheme.skeleton
                         }
                         Rectangle {
                             Layout.fillWidth: true
                             height: 6
                             radius: 3
-                            color: FluTheme.dark ? "#2a2f3b" : "#e4e8f0"
+                            color: AppTheme.skeleton
                         }
                     }
                 }
@@ -143,7 +137,7 @@ FluScrollablePage {
             FluText {
                 Layout.alignment: Qt.AlignHCenter
                 text: qsTr("正在加载战绩详情...")
-                color: FluColors.Grey120
+                color: AppTheme.textSecondary
                 font.pixelSize: 13
                 opacity: 0.72 + page.loadingPulse * 0.14
             }
@@ -153,7 +147,7 @@ FluScrollablePage {
             visible: page.hasError
             anchors.centerIn: parent
             text: qsTr("加载失败：") + (detail.error || "")
-            color: "#c64343"
+            color: AppTheme.loss
         }
     }
 

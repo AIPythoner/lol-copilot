@@ -11,6 +11,18 @@ FluScrollablePage {
 
     readonly property var entries: [
         {
+            version: "v0.2.6",
+            date: "2026-06-23",
+            title: qsTr("全新毛玻璃界面、免费 AI 复盘与浅色主题"),
+            items: [
+                qsTr("界面全面改版为「毛玻璃」风格：半透明磨砂卡片、柔和渐变背景、统一设计令牌与悬浮微交互"),
+                qsTr("新增免费 AI 战绩复盘：无需自备 API Key，通过云端中转开箱即用（按 IP 限流，仅供参考）"),
+                qsTr("默认改为浅色主题（仍可在标题栏一键切换深色）"),
+                qsTr("AI 复盘不再被截断，「重新生成」修复为真正重新生成"),
+                qsTr("对局详情骨架屏配色适配主题，更柔和不刺眼")
+            ]
+        },
+        {
             version: "v0.2.5",
             date: "2026-05-23",
             title: qsTr("个性化资料、好友开黑标记与可点击卡片"),
@@ -80,15 +92,16 @@ FluScrollablePage {
         FluText {
             text: qsTr("最近 5 次主要更新")
             font: FluTextStyle.Subtitle
-            color: FluColors.Grey120
+            color: AppTheme.textSecondary
         }
 
         Repeater {
             model: page.entries
-            delegate: FluArea {
+            delegate: GlassCard {
                 Layout.fillWidth: true
                 Layout.preferredHeight: entryCol.implicitHeight + 28
                 paddings: 14
+                radius: AppTheme.radiusLg
 
                 ColumnLayout {
                     id: entryCol
@@ -107,7 +120,7 @@ FluScrollablePage {
                         }
                         FluText {
                             text: modelData.date
-                            color: FluColors.Grey120
+                            color: AppTheme.textSecondary
                             font.pixelSize: 12
                         }
                         Item { Layout.fillWidth: true }
@@ -133,13 +146,13 @@ FluScrollablePage {
 
                                 FluText {
                                     text: "•"
-                                    color: FluColors.Grey120
+                                    color: AppTheme.textSecondary
                                     Layout.alignment: Qt.AlignTop
                                 }
                                 FluText {
                                     Layout.fillWidth: true
                                     text: modelData
-                                    color: FluColors.Grey120
+                                    color: AppTheme.textSecondary
                                     wrapMode: Text.WordWrap
                                 }
                             }

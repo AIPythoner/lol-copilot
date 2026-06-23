@@ -25,25 +25,25 @@ FluScrollablePage {
 
     ColumnLayout {
         width: parent.width
-        spacing: 12
+        spacing: AppTheme.sp3
 
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: 80
-            paddings: 14
+            paddings: AppTheme.sp4
             ColumnLayout {
                 anchors.fill: parent
                 spacing: 6
                 FluText {
                     text: qsTr("从最近对局抽取并统计同队出现次数。分析较慢，最多 50 场需要 10-20 秒。")
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                     font.pixelSize: 12
                     wrapMode: Text.Wrap
                     Layout.fillWidth: true
                 }
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 10
+                    spacing: AppTheme.sp3
                     FluToggleButton {
                         text: qsTr("分析 30 场")
                         checked: page.requestedCount === 30
@@ -65,7 +65,7 @@ FluScrollablePage {
                     Item { Layout.fillWidth: true }
                     FluText {
                         text: qsTr("共 ") + teammates.length + qsTr(" 位队友")
-                        color: FluColors.Grey120
+                        color: AppTheme.textSecondary
                         font.pixelSize: 12
                     }
                 }
@@ -81,15 +81,16 @@ FluScrollablePage {
             visible: teammates.length === 0
             text: Lcu.connected ? qsTr("请点击按钮开始分析") : qsTr("请先连接客户端")
             Layout.alignment: Qt.AlignHCenter
-            color: FluColors.Grey120
+            color: AppTheme.textSecondary
         }
     }
 
-    component TeammateCard: FluArea {
+    component TeammateCard: GlassCard {
         id: card
         property var entry: ({})
         Layout.preferredHeight: 92
-        paddings: 12
+        paddings: AppTheme.sp3
+        hoverable: true
 
         MouseArea {
             anchors.fill: parent
@@ -129,7 +130,7 @@ FluScrollablePage {
                         Layout.preferredWidth: 86
                         horizontalAlignment: Text.AlignRight
                         text: qsTr("同队 ") + entry.gamesTogether + qsTr(" 次")
-                        color: FluColors.Grey120
+                        color: AppTheme.textSecondary
                         font.pixelSize: 12
                     }
 
@@ -138,7 +139,7 @@ FluScrollablePage {
                         horizontalAlignment: Text.AlignRight
                         text: entry.winsTogether + qsTr(" 胜 / ")
                             + (entry.gamesTogether - entry.winsTogether) + qsTr(" 负")
-                        color: FluColors.Grey120
+                        color: AppTheme.textSecondary
                         font.pixelSize: 12
                     }
 
@@ -146,8 +147,8 @@ FluScrollablePage {
                         Layout.preferredWidth: 54
                         horizontalAlignment: Text.AlignRight
                         text: Math.round((entry.winRate || 0) * 100) + "%"
-                        color: (entry.winRate || 0) >= 0.55 ? "#3ea04a"
-                             : (entry.winRate || 0) >= 0.45 ? FluColors.Grey120 : "#c64343"
+                        color: (entry.winRate || 0) >= 0.55 ? AppTheme.win
+                             : (entry.winRate || 0) >= 0.45 ? AppTheme.textSecondary : AppTheme.loss
                         font.pixelSize: 12
                         font.bold: true
                     }
@@ -177,7 +178,7 @@ FluScrollablePage {
                         Layout.preferredWidth: 118
                         horizontalAlignment: Text.AlignRight
                         text: qsTr("最高 ") + entry.gamesTogether + qsTr(" 场同队")
-                        color: FluColors.Grey120
+                        color: AppTheme.textSecondary
                         font.pixelSize: 11
                     }
                 }
@@ -205,7 +206,7 @@ FluScrollablePage {
                 FluText {
                     Layout.alignment: Qt.AlignRight
                     text: qsTr("点击查看召唤师主页")
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                     font.pixelSize: 11
                 }
             }

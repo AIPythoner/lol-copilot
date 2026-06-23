@@ -42,18 +42,19 @@ FluScrollablePage {
 
     ColumnLayout {
         width: parent.width
-        spacing: 12
+        spacing: AppTheme.sp3
 
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: 64
-            paddings: 12
+            paddings: AppTheme.sp3
+            radius: AppTheme.radiusLg
             RowLayout {
                 anchors.fill: parent
-                spacing: 10
+                spacing: AppTheme.sp3
                 FluText {
                     text: qsTr("来源：ARAM Mayhem + Community Dragon 英雄数据（随版本更新）")
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                     font.pixelSize: 12
                 }
                 Item { Layout.fillWidth: true }
@@ -82,8 +83,8 @@ FluScrollablePage {
         GridLayout {
             Layout.fillWidth: true
             columns: Math.max(4, Math.floor(width / 170))
-            columnSpacing: 10
-            rowSpacing: 10
+            columnSpacing: AppTheme.sp3
+            rowSpacing: AppTheme.sp3
 
             Repeater {
                 model: filtered
@@ -95,20 +96,20 @@ FluScrollablePage {
             visible: filtered.length === 0
             text: qsTr("加载中或无数据…")
             Layout.alignment: Qt.AlignHCenter
-            color: FluColors.Grey120
+            color: AppTheme.textSecondary
         }
     }
 
-    component BuffCard: FluArea {
+    component BuffCard: GlassCard {
         id: card
         property var buff: ({})
         Layout.preferredHeight: Math.max(106, statsCol.implicitHeight + 24)
         Layout.fillWidth: true
-        paddings: 10
+        paddings: AppTheme.sp3
 
         RowLayout {
             anchors.fill: parent
-            spacing: 10
+            spacing: AppTheme.sp3
 
             ChampionIcon {
                 championId: buff.championId || 0
@@ -151,7 +152,7 @@ FluScrollablePage {
         FluText {
             Layout.preferredWidth: 40
             text: label
-            color: FluColors.Grey120
+            color: AppTheme.textSecondary
             font.pixelSize: 10
         }
 
@@ -167,7 +168,7 @@ FluScrollablePage {
                 anchors.horizontalCenter: parent.horizontalCenter
                 width: 1
                 height: 10
-                color: FluColors.Grey120
+                color: AppTheme.textSecondary
                 opacity: 0.4
             }
 
@@ -179,15 +180,15 @@ FluScrollablePage {
                 width: Math.min(parent.width/2, Math.abs(delta) * parent.width)
                 height: parent.height
                 radius: parent.radius
-                color: (delta >= 0) === positiveGood ? "#3ea04a" : "#c64343"
+                color: (delta >= 0) === positiveGood ? AppTheme.win : AppTheme.loss
             }
         }
 
         FluText {
             Layout.preferredWidth: 44
             text: Math.round(value * 100) + "%"
-            color: Math.abs(value - 1) < 0.01 ? FluColors.Grey120
-                 : ((value > 1) === positiveGood ? "#3ea04a" : "#c64343")
+            color: Math.abs(value - 1) < 0.01 ? AppTheme.textSecondary
+                 : ((value > 1) === positiveGood ? AppTheme.win : AppTheme.loss)
             font.pixelSize: 11
             font.bold: Math.abs(value - 1) > 0.01
             horizontalAlignment: Text.AlignRight

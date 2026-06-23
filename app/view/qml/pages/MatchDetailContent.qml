@@ -59,14 +59,14 @@ Item {
             case "IRON": return "#7d6c5e"
             case "BRONZE": return "#a07048"
             case "SILVER": return "#9faebd"
-            case "GOLD": return "#d4a04a"
+            case "GOLD": return AppTheme.accent
             case "PLATINUM": return "#5ac8b5"
-            case "EMERALD": return "#3ea04a"
+            case "EMERALD": return AppTheme.win
             case "DIAMOND": return "#4684d4"
             case "MASTER": return "#b964e0"
             case "GRANDMASTER": return "#e06c75"
             case "CHALLENGER": return "#f8d458"
-            default: return FluColors.Grey120
+            default: return AppTheme.textSecondary
         }
     }
 
@@ -75,10 +75,11 @@ Item {
         width: root.width
         spacing: 14
 
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: 90
-            paddings: 16
+            paddings: AppTheme.sp4
+            radius: AppTheme.radiusLg
 
             RowLayout {
                 anchors.fill: parent
@@ -88,7 +89,7 @@ Item {
                     Layout.preferredWidth: 6
                     Layout.fillHeight: true
                     radius: 3
-                    color: root.blueStat.win ? "#4684d4" : "#c64343"
+                    color: root.blueStat.win ? "#4684d4" : AppTheme.loss
                 }
 
                 ColumnLayout {
@@ -100,18 +101,18 @@ Item {
                         QueueBadge { queueId: root.detail.queueId || 0 }
                         FluText {
                             text: Fmt.absoluteTime(root.detail.gameCreation)
-                            color: FluColors.Grey120
+                            color: AppTheme.textSecondary
                             font.pixelSize: 12
                         }
                         FluText {
                             text: Fmt.relativeTime(root.detail.gameCreation)
-                            color: FluColors.Grey120
+                            color: AppTheme.textSecondary
                             font.pixelSize: 12
                         }
                     }
                     FluText {
                         text: qsTr("时长 ") + Fmt.duration(root.detail.gameDuration || 0)
-                        color: FluColors.Grey120
+                        color: AppTheme.textSecondary
                         font.pixelSize: 12
                     }
                 }
@@ -133,7 +134,7 @@ Item {
                 FluText {
                     text: root.blueStat.win ? qsTr("蓝方胜利") : qsTr("蓝方失败")
                     font: FluTextStyle.Title
-                    color: root.blueStat.win ? "#4684d4" : "#c64343"
+                    color: root.blueStat.win ? "#4684d4" : AppTheme.loss
                 }
             }
         }
@@ -186,14 +187,14 @@ Item {
             FluText {
                 text: teamId === 100 ? qsTr("蓝方") : qsTr("红方")
                 font: FluTextStyle.Subtitle
-                color: teamId === 100 ? "#4684d4" : "#c64343"
+                color: teamId === 100 ? "#4684d4" : AppTheme.loss
             }
             FluText {
                 text: teamStat.win ? qsTr("胜") : qsTr("败")
-                color: teamStat.win ? "#3ea04a" : "#c64343"
+                color: teamStat.win ? AppTheme.win : AppTheme.loss
                 font.bold: true
             }
-            Rectangle { width: 1; height: 20; color: FluColors.Grey120; opacity: 0.3 }
+            Rectangle { width: 1; height: 20; color: AppTheme.textSecondary; opacity: 0.3 }
             StatChip { icon: "⚔"; text: (teamStat.kills || 0) + qsTr(" 击杀") }
             StatChip { icon: "💰"; text: Fmt.bigNum(teamStat.gold || 0) }
             StatChip { icon: "🏰"; text: (teamStat.towerKills || 0) + qsTr(" 塔") }
@@ -208,25 +209,19 @@ Item {
         property string text: ""
         spacing: 4
         FluText { text: icon; font.pixelSize: 14 }
-        FluText { text: parent.text; color: FluColors.Grey120; font.pixelSize: 12 }
+        FluText { text: parent.text; color: AppTheme.textSecondary; font.pixelSize: 12 }
     }
 
-    component ParticipantRow: FluArea {
+    component ParticipantRow: GlassCard {
         id: row
         property var participant: ({})
-        signal clicked()
 
         Layout.fillWidth: true
         Layout.preferredHeight: root.participantRowHeight
         paddings: 10
         clip: true
-
-        MouseArea {
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            onClicked: row.clicked()
-        }
+        hoverable: true
+        interactive: true
 
         RowLayout {
             anchors.fill: parent
@@ -342,13 +337,13 @@ Item {
                         : qsTr("未定级")
                     color: participant.rank && participant.rank.tier
                         ? root._tierColor(participant.rank.tier)
-                        : FluColors.Grey120
+                        : AppTheme.textSecondary
                     font.pixelSize: 11
                 }
 
                 FluText {
                     text: qsTr("分数 ") + Math.round(participant.score || 0)
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                     font.pixelSize: 11
                 }
             }
@@ -382,7 +377,7 @@ Item {
                 spacing: 2
 
                 FluText { text: "CS " + (participant.cs || 0); font.pixelSize: 12 }
-                FluText { text: Fmt.bigNum(participant.gold || 0); color: FluColors.Grey120; font.pixelSize: 11 }
+                FluText { text: Fmt.bigNum(participant.gold || 0); color: AppTheme.textSecondary; font.pixelSize: 11 }
             }
 
             DamageBar {
@@ -484,7 +479,7 @@ Item {
                 FluText { text: qsTr("AI 复盘"); font: FluTextStyle.Title }
                 FluText {
                     text: aiDialog.aiLoading ? qsTr("分析中…") : (aiDialog.errorText.length > 0 ? qsTr("失败") : qsTr("完成"))
-                    color: aiDialog.errorText.length > 0 ? "#c64343" : FluColors.Grey120
+                    color: aiDialog.errorText.length > 0 ? AppTheme.loss : AppTheme.textSecondary
                     font.pixelSize: 11
                 }
                 Item { Layout.fillWidth: true }
@@ -498,7 +493,7 @@ Item {
             FluText {
                 visible: aiDialog.errorText.length > 0
                 text: aiDialog.errorText
-                color: "#c64343"
+                color: AppTheme.loss
                 wrapMode: Text.WordWrap
                 Layout.fillWidth: true
             }
@@ -522,7 +517,7 @@ Item {
                         : (aiDialog.aiLoading ? qsTr("正在等待 AI 回复…") : "")
                     textFormat: Text.MarkdownText
                     wrapMode: Text.WordWrap
-                    color: aiDialog.aiContent.length > 0 ? undefined : FluColors.Grey120
+                    color: aiDialog.aiContent.length > 0 ? undefined : AppTheme.textSecondary
                 }
             }
 
@@ -530,18 +525,20 @@ Item {
                 Layout.fillWidth: true
                 FluText {
                     text: qsTr("数据仅来自本场战绩，不会发送你的账号信息")
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                     font.pixelSize: 10
                 }
                 Item { Layout.fillWidth: true }
                 FluButton {
                     text: qsTr("重新生成")
                     enabled: !aiDialog.aiLoading && root.myGameId > 0
+                    // force=true bypasses the session cache so this regenerates
+                    // instead of replaying the last (possibly stale) result.
                     onClicked: {
                         aiDialog.aiContent = ""
                         aiDialog.errorText = ""
                         aiDialog.aiLoading = true
-                        Lcu.analyzeMatch(root.myGameId, aiDialog.aiMode, "")
+                        Lcu.analyzeMatch(root.myGameId, aiDialog.aiMode, "", true)
                     }
                 }
             }

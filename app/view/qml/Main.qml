@@ -15,6 +15,13 @@ FluWindow {
     fitsAppBarWindows: true
     property bool trayAvailable: true
 
+    // Frosted "hextech glass" canvas behind the whole app. The nav pane (Open
+    // mode) and page surfaces are transparent, so this gradient + soft glows
+    // shows through everywhere and translucent GlassCards read as frosted glass.
+    background: Component {
+        GlassBackground {}
+    }
+
     Timer {
         id: saveGeomTimer
         interval: 500
@@ -44,9 +51,9 @@ FluWindow {
 
     Component.onCompleted: {
         // Restore persisted theme choice. First launch defaults to Dark.
-        var mode = (Lcu.settings && Lcu.settings.dark_mode) || "dark"
-        if (mode === "light") FluTheme.darkMode = FluThemeType.Light
-        else FluTheme.darkMode = FluThemeType.Dark
+        var mode = (Lcu.settings && Lcu.settings.dark_mode) || "light"
+        if (mode === "dark") FluTheme.darkMode = FluThemeType.Dark
+        else FluTheme.darkMode = FluThemeType.Light
         FluTheme.animationEnabled = true
     }
 

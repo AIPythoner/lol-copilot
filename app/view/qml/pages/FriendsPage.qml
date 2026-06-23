@@ -34,11 +34,11 @@ FluScrollablePage {
     }
 
     function _availabilityColor(av) {
-        if (av === "chat") return "#3ea04a"
-        if (av === "dnd") return "#c64343"
+        if (av === "chat") return AppTheme.win
+        if (av === "dnd") return AppTheme.loss
         if (av === "mobile") return "#4684d4"
-        if (av === "away") return "#d4a04a"
-        return FluColors.Grey120
+        if (av === "away") return AppTheme.accent
+        return AppTheme.textSecondary
     }
 
     function _gameStatusLabel(status, mode) {
@@ -51,19 +51,19 @@ FluScrollablePage {
 
     ColumnLayout {
         width: parent.width
-        spacing: 14
+        spacing: AppTheme.sp4
 
         // ===== header =====
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: 80
-            paddings: 14
+            paddings: AppTheme.sp4
             ColumnLayout {
                 anchors.fill: parent
                 spacing: 6
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 10
+                    spacing: AppTheme.sp3
                     FluText {
                         text: qsTr("好友列表")
                         font: FluTextStyle.Subtitle
@@ -71,7 +71,7 @@ FluScrollablePage {
                     FluText {
                         text: qsTr("共 ") + page.friendsAll.length
                             + qsTr(" · 游戏中 ") + page.inGame.length
-                        color: FluColors.Grey120
+                        color: AppTheme.textSecondary
                         font.pixelSize: 12
                     }
                     Item { Layout.fillWidth: true }
@@ -84,7 +84,7 @@ FluScrollablePage {
                 }
                 FluText {
                     text: qsTr("同一对局里的多位好友会用相同颜色标记开黑组。点击头像打开战绩。")
-                    color: FluColors.Grey120
+                    color: AppTheme.textSecondary
                     font.pixelSize: 11
                     Layout.fillWidth: true
                     wrapMode: Text.Wrap
@@ -124,14 +124,15 @@ FluScrollablePage {
             visible: page.friendsAll.length === 0
             text: Lcu.connected ? qsTr("暂无好友数据，请刷新") : qsTr("请先连接客户端")
             Layout.alignment: Qt.AlignHCenter
-            color: FluColors.Grey120
+            color: AppTheme.textSecondary
         }
     }
 
-    component FriendCard: FluArea {
+    component FriendCard: GlassCard {
         property var entry: ({})
         Layout.preferredHeight: 64
         paddings: 0
+        hoverable: !!entry.puuid
 
         // Same-game color stripe (only set for premade groups of 2+).
         Rectangle {
@@ -179,7 +180,7 @@ FluScrollablePage {
                         ? page._gameStatusLabel(entry.gameStatus, entry.gameMode)
                         : page._availabilityLabel(entry.availability)
                     color: entry.inGame
-                        ? (entry.groupColor || "#d4a04a")
+                        ? (entry.groupColor || AppTheme.accent)
                         : page._availabilityColor(entry.availability)
                     font.pixelSize: 11
                 }

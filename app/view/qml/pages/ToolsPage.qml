@@ -52,10 +52,11 @@ FluScrollablePage {
         spacing: 14
 
         // ===== custom lobbies =====
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: lobbyCol.implicitHeight + 32
             paddings: 14
+            radius: AppTheme.radiusLg
             ColumnLayout {
                 id: lobbyCol
                 anchors.left: parent.left
@@ -138,10 +139,11 @@ FluScrollablePage {
         }
 
         // ===== profile tools =====
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: profileCol.implicitHeight + 32
             paddings: 14
+            radius: AppTheme.radiusLg
             ColumnLayout {
                 id: profileCol
                 anchors.left: parent.left
@@ -169,7 +171,7 @@ FluScrollablePage {
                         }
                         FluText {
                             text: qsTr("当前头像 ID: ") + (page.summoner.profileIconId || "-")
-                            color: FluColors.Grey120
+                            color: AppTheme.textSecondary
                             font.pixelSize: 11
                         }
                     }
@@ -213,7 +215,7 @@ FluScrollablePage {
                     Item { Layout.fillWidth: true }
                     FluText {
                         text: qsTr("好友可见")
-                        color: FluColors.Grey120
+                        color: AppTheme.textSecondary
                         font.pixelSize: 11
                     }
                 }
@@ -274,10 +276,11 @@ FluScrollablePage {
         }
 
         // ===== Hextech loot =====
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: hexCol.implicitHeight + 32
             paddings: 14
+            radius: AppTheme.radiusLg
             ColumnLayout {
                 id: hexCol
                 anchors.left: parent.left
@@ -316,16 +319,16 @@ FluScrollablePage {
                         text: qsTr("蓝色精粹 ") + (hexCol.wallet.blue || 0).toLocaleString(Qt.locale(), "f", 0)
                         font.pixelSize: 12
                     }
-                    Rectangle { width: 1; height: 16; color: FluColors.Grey120; opacity: 0.3 }
+                    Rectangle { width: 1; height: 16; color: AppTheme.textSecondary; opacity: 0.3 }
                     FluText {
                         text: qsTr("橙色精粹 ") + (hexCol.wallet.orange || 0).toLocaleString(Qt.locale(), "f", 0)
                         font.pixelSize: 12
                     }
-                    Rectangle { width: 1; height: 16; color: FluColors.Grey120; opacity: 0.3 }
+                    Rectangle { width: 1; height: 16; color: AppTheme.textSecondary; opacity: 0.3 }
                     FluText {
                         text: qsTr("钥匙 ") + (hexCol.wallet.keys || 0) + "  ·  " + qsTr("碎片 ") + (hexCol.wallet.keyFragments || 0)
                         font.pixelSize: 12
-                        color: FluColors.Grey120
+                        color: AppTheme.textSecondary
                     }
                 }
 
@@ -338,7 +341,7 @@ FluScrollablePage {
 
                     ColumnLayout {
                         spacing: 1
-                        FluText { text: qsTr("宝箱"); color: FluColors.Grey120; font.pixelSize: 11 }
+                        FluText { text: qsTr("宝箱"); color: AppTheme.textSecondary; font.pixelSize: 11 }
                         FluText {
                             text: (hexCol.hex.totalChests || 0) + ""
                             font: FluTextStyle.Subtitle
@@ -346,7 +349,7 @@ FluScrollablePage {
                     }
                     ColumnLayout {
                         spacing: 1
-                        FluText { text: qsTr("碎片总数"); color: FluColors.Grey120; font.pixelSize: 11 }
+                        FluText { text: qsTr("碎片总数"); color: AppTheme.textSecondary; font.pixelSize: 11 }
                         FluText {
                             text: (hexCol.hex.totalShards || 0) + ""
                             font: FluTextStyle.Subtitle
@@ -354,22 +357,22 @@ FluScrollablePage {
                     }
                     ColumnLayout {
                         spacing: 1
-                        FluText { text: qsTr("重复碎片"); color: FluColors.Grey120; font.pixelSize: 11 }
+                        FluText { text: qsTr("重复碎片"); color: AppTheme.textSecondary; font.pixelSize: 11 }
                         FluText {
                             text: hexCol.redundantCount + ""
                             font: FluTextStyle.Subtitle
-                            color: hexCol.redundantBe > 0 ? "#d4a04a" : undefined
+                            color: hexCol.redundantBe > 0 ? AppTheme.accent : undefined
                         }
                     }
                     ColumnLayout {
                         spacing: 1
-                        FluText { text: qsTr("预计可得 BE"); color: FluColors.Grey120; font.pixelSize: 11 }
+                        FluText { text: qsTr("预计可得 BE"); color: AppTheme.textSecondary; font.pixelSize: 11 }
                         FluText {
                             text: hexCol.redundantBe > 0
                                 ? "+" + hexCol.redundantBe.toLocaleString(Qt.locale(), "f", 0)
                                 : "0"
                             font: FluTextStyle.Subtitle
-                            color: hexCol.redundantBe > 0 ? "#3ea04a" : FluColors.Grey120
+                            color: hexCol.redundantBe > 0 ? AppTheme.win : AppTheme.textSecondary
                         }
                     }
                     Item { Layout.fillWidth: true }
@@ -396,7 +399,7 @@ FluScrollablePage {
                     Item { Layout.fillWidth: true }
                     FluText {
                         text: qsTr("仅开自动型宝箱与重复碎片，不会动你的代币与非重复皮肤")
-                        color: FluColors.Grey120
+                        color: AppTheme.textSecondary
                         font.pixelSize: 10
                     }
                 }
@@ -404,10 +407,11 @@ FluScrollablePage {
         }
 
         // ===== chat broadcasts =====
-        FluArea {
+        GlassCard {
             Layout.fillWidth: true
             Layout.preferredHeight: chatCol.implicitHeight + 32
             paddings: 14
+            radius: AppTheme.radiusLg
             ColumnLayout {
                 id: chatCol
                 anchors.left: parent.left
@@ -426,7 +430,7 @@ FluScrollablePage {
                         anchors.rightMargin: 10
                         anchors.verticalCenter: parent.verticalCenter
                         text: qsTr("把双方近期战绩胜率发到选人聊天")
-                        color: FluColors.Grey120
+                        color: AppTheme.textSecondary
                         font.pixelSize: 11
                     }
                     FluFilledButton {
