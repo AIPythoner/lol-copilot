@@ -51,6 +51,11 @@ FluScrollablePage {
         width: parent.width
         spacing: 14
 
+        // ===== auto actions (most-used → keep at top) =====
+        AutoActionsPanel {
+            Layout.fillWidth: true
+        }
+
         // ===== custom lobbies =====
         GlassCard {
             Layout.fillWidth: true
@@ -445,9 +450,6 @@ FluScrollablePage {
             }
         }
 
-        AutoActionsPanel {
-            Layout.fillWidth: true
-        }
     }
 
     BackgroundSkinPicker {

@@ -126,6 +126,7 @@ class LcuBridge(QObject):
     gameDataChanged = Signal()
     championPoolChanged = Signal()
     teammatesChanged = Signal()
+    teammatesLoadingChanged = Signal()
     searchResultChanged = Signal()
     aramBuffsChanged = Signal()
     inGameChanged = Signal()
@@ -190,6 +191,7 @@ class LcuBridge(QObject):
         self._winrate_sent_fingerprints: set[str] = set()
         self._champion_pool: list[dict[str, Any]] = []
         self._teammates: list[dict[str, Any]] = []
+        self._teammates_loading: bool = False
         self._search_result: dict[str, Any] = {}
         self._aram_buffs: list[dict[str, Any]] = []
         self._in_game: dict[str, Any] = {}
@@ -504,6 +506,10 @@ class LcuBridge(QObject):
     def teammates(self) -> list:  # type: ignore[override]
         return self._teammates
 
+    @Property(bool, notify=teammatesLoadingChanged)
+    def teammatesLoading(self) -> bool:  # type: ignore[override]
+        return self._teammates_loading
+
     @Property("QVariant", notify=searchResultChanged)
     def searchResult(self) -> dict:  # type: ignore[override]
         return self._search_result
@@ -685,6 +691,11 @@ class LcuBridge(QObject):
 
     @Slot(int)
     def loadTeammates(self, count: int) -> None:
+        # Guard against re-entrancy: the page auto-starts a 30-game analysis on
+        # open, and navigating in/out (or double-clicking the buttons) must not
+        # kick off a second 10-20s run on top of an in-flight one.
+        if self._teammates_loading:
+            return
         self._spawn(self._load_teammates(max(10, count)))
 
     @Slot()
@@ -2691,6 +2702,8 @@ class LcuBridge(QObject):
     async def _load_teammates(self, count: int) -> None:
         if not self._client.is_connected():
             return
+        self._teammates_loading = True
+        self.teammatesLoadingChanged.emit()
         started_at = time.perf_counter()
         history_ms = 0
         details_ms = 0
@@ -2802,6 +2815,9 @@ class LcuBridge(QObject):
         except Exception as e:  # noqa: BLE001
             log.warning("teammates failed: %s", e)
             self.errorOccurred.emit(str(e))
+        finally:
+            self._teammates_loading = False
+            self.teammatesLoadingChanged.emit()
 
     async def _load_aram_buffs(self, refresh: bool = False) -> None:
         try:

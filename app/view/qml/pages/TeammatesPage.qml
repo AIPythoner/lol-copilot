@@ -23,6 +23,20 @@ FluScrollablePage {
         return Math.max(1, m)
     }
 
+    // Auto-start the default 30-game analysis the moment the page opens (or as
+    // soon as the client connects), so users don't have to click a button. The
+    // bridge guards against re-entrancy and we only kick off when there's no
+    // data yet, so navigating in/out won't re-run the 10-20s analysis.
+    function _maybeAutoLoad() {
+        if (Lcu.connected && teammates.length === 0 && !Lcu.teammatesLoading)
+            Lcu.loadTeammates(page.requestedCount)
+    }
+    Component.onCompleted: _maybeAutoLoad()
+    Connections {
+        target: Lcu
+        function onConnectedChanged() { page._maybeAutoLoad() }
+    }
+
     ColumnLayout {
         width: parent.width
         spacing: AppTheme.sp3
@@ -47,7 +61,7 @@ FluScrollablePage {
                     FluToggleButton {
                         text: qsTr("分析 30 场")
                         checked: page.requestedCount === 30
-                        enabled: Lcu.connected
+                        enabled: Lcu.connected && !Lcu.teammatesLoading
                         clickListener: function() {
                             page.requestedCount = 30
                             Lcu.loadTeammates(30)
@@ -56,7 +70,7 @@ FluScrollablePage {
                     FluToggleButton {
                         text: qsTr("分析 50 场")
                         checked: page.requestedCount === 50
-                        enabled: Lcu.connected
+                        enabled: Lcu.connected && !Lcu.teammatesLoading
                         clickListener: function() {
                             page.requestedCount = 50
                             Lcu.loadTeammates(50)
@@ -64,7 +78,9 @@ FluScrollablePage {
                     }
                     Item { Layout.fillWidth: true }
                     FluText {
-                        text: qsTr("共 ") + teammates.length + qsTr(" 位队友")
+                        text: Lcu.teammatesLoading
+                            ? qsTr("正在分析…")
+                            : qsTr("共 ") + teammates.length + qsTr(" 位队友")
                         color: AppTheme.textSecondary
                         font.pixelSize: 12
                     }
@@ -79,7 +95,9 @@ FluScrollablePage {
 
         FluText {
             visible: teammates.length === 0
-            text: Lcu.connected ? qsTr("请点击按钮开始分析") : qsTr("请先连接客户端")
+            text: !Lcu.connected ? qsTr("请先连接客户端")
+                : Lcu.teammatesLoading ? qsTr("正在分析最近对局，请稍候…")
+                : qsTr("请点击按钮开始分析")
             Layout.alignment: Qt.AlignHCenter
             color: AppTheme.textSecondary
         }

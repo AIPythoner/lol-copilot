@@ -29,18 +29,18 @@ FluScrollablePage {
         // ===== profile banner =====
         GlassCard {
             Layout.fillWidth: true
-            Layout.preferredHeight: 138
-            paddings: AppTheme.sp5
+            Layout.preferredHeight: 108
+            paddings: AppTheme.sp4
             radius: AppTheme.radiusLg
 
             RowLayout {
                 anchors.fill: parent
-                spacing: AppTheme.sp5
+                spacing: AppTheme.sp4
 
                 ProfileIcon {
                     iconId: summoner.profileIconId || 0
                     level: summoner.summonerLevel || 0
-                    size: 92
+                    size: 72
                     Layout.alignment: Qt.AlignVCenter
                 }
 
@@ -120,7 +120,7 @@ FluScrollablePage {
         }
 
         GridLayout {
-            Layout.fillWidth: true
+            Layout.alignment: Qt.AlignLeft
             columns: 3
             rowSpacing: AppTheme.sp3
             columnSpacing: AppTheme.sp3
@@ -129,9 +129,9 @@ FluScrollablePage {
             Repeater {
                 model: rankedQueues
                 delegate: GlassCard {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 130
-                    paddings: AppTheme.sp3
+                    Layout.preferredWidth: 280
+                    Layout.preferredHeight: 106
+                    paddings: AppTheme.sp2
                     hoverable: true
 
                     RowLayout {
@@ -148,14 +148,14 @@ FluScrollablePage {
                         // larger than the desired visible size.
                         Item {
                             Layout.alignment: Qt.AlignVCenter
-                            Layout.preferredWidth: 100
-                            Layout.preferredHeight: 100
-                            Layout.minimumWidth: 100
-                            Layout.minimumHeight: 100
+                            Layout.preferredWidth: 80
+                            Layout.preferredHeight: 80
+                            Layout.minimumWidth: 80
+                            Layout.minimumHeight: 80
                             Image {
                                 anchors.centerIn: parent
-                                width: 280
-                                height: 280
+                                width: 230
+                                height: 230
                                 smooth: true
                                 cache: true
                                 fillMode: Image.PreserveAspectFit
@@ -200,7 +200,7 @@ FluScrollablePage {
 
             GlassCard {
                 visible: rankedQueues.length === 0
-                Layout.fillWidth: true
+                Layout.preferredWidth: 280
                 Layout.preferredHeight: 80
                 paddings: AppTheme.sp4
                 FluText {
@@ -276,28 +276,25 @@ FluScrollablePage {
         }
 
         GlassCard {
+            id: quickCard
             Layout.fillWidth: true
             Layout.preferredHeight: 74
             paddings: AppTheme.sp4
             visible: page.dataReady
 
+            readonly property bool autoAccept: !!(Lcu.settings.auto_actions && Lcu.settings.auto_actions.auto_accept)
+
             RowLayout {
                 anchors.fill: parent
                 spacing: AppTheme.sp3
 
-                FluButton {
-                    text: qsTr("接受对局")
-                    enabled: Lcu.phase === "ReadyCheck"
-                    onClicked: Lcu.acceptReady()
-                }
-                FluButton {
-                    text: qsTr("拒绝对局")
-                    enabled: Lcu.phase === "ReadyCheck"
-                    onClicked: Lcu.declineReady()
-                }
-                FluButton {
-                    text: qsTr("解散房间")
-                    onClicked: Lcu.dodgeLobby()
+                FluToggleButton {
+                    text: quickCard.autoAccept ? qsTr("自动对局接受已开启") : qsTr("开启自动接受对局")
+                    checked: quickCard.autoAccept
+                    enabled: Lcu.connected
+                    clickListener: function() {
+                        Lcu.updateAutoActions({"auto_accept": !quickCard.autoAccept})
+                    }
                 }
                 Item { Layout.fillWidth: true }
                 FluText {
